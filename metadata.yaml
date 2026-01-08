@@ -1,0 +1,6 @@
+name: astrbot_plugin_link_resolver 
+desc: 解析 B 站/抖音/小红书链接并发送内容 
+help: 监听 B 站/抖音/小红书链接，自动解析并发送视频或图片 
+version: v1.0.1 
+author: acacia 
+repo: https://github.com/vacacia/astrbot_plugin_link_resolver 

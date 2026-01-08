@@ -1,0 +1,146 @@
+{
+    "enable_platforms": {
+        "description": "启用的平台",
+        "hint": "勾选要启用解析的平台。",
+        "type": "list",
+        "options": [
+            "B站",
+            "抖音",
+            "小红书"
+        ],
+        "default": [
+            "B站",
+            "抖音",
+            "小红书"
+        ]
+    },
+    "bili_video_quality": {
+        "description": "B站视频下载画质",
+        "type": "string",
+        "hint": "选择下载视频的画质。",
+        "default": "1080P高帧率",
+        "options": [
+            "原画 (最高画质)",
+            "8K",
+            "4K",
+            "1080P高帧率",
+            "1080P",
+            "720P",
+            "最低"
+        ]
+    },
+    "bili_allow_quality_fallback": {
+        "description": "超限时自动降画质",
+        "type": "bool",
+        "hint": "当视频大小超过限制时，自动尝试更低画质下载。",
+        "default": true
+    },
+    "bili_merge_send": {
+        "description": "B站合并发送",
+        "type": "bool",
+        "hint": "开启后将 B 站视频信息和视频合并转发发送（多P默认合并）。不开启只发送单独视频",
+        "default": false
+    },
+    "bili_enable_multi_page": {
+        "description": "B站多P视频处理",
+        "type": "bool",
+        "hint": "开启后，遇到多P视频将按配置下载多个分P。",
+        "default": true
+    },
+    "bili_multi_page_max": {
+        "description": "B站多P最多下载数量",
+        "type": "int",
+        "hint": "多P视频最多下载的分P数量。",
+        "default": 3,
+        "min": 1,
+        "max": 20
+    },
+    "douyin_max_media": {
+        "description": "抖音最多发送媒体数",
+        "type": "int",
+        "hint": "抖音图集/动图最多发送的数量。",
+        "default": 99,
+        "min": 1,
+        "max": 99
+    },
+    "douyin_merge_send": {
+        "description": "抖音视频合并发送",
+        "type": "bool",
+        "hint": "仅对视频生效。开启时发送卡片+视频的合并转发；关闭时只发送单独视频。图文笔记始终使用合并转发（卡片+图片）。",
+        "default": true
+    },
+    "xhs_max_media": {
+        "description": "小红书最多发送媒体数",
+        "type": "int",
+        "hint": "小红书图集最多发送的数量。",
+        "default": 99,
+        "min": 1,
+        "max": 99
+    },
+    "xhs_merge_send": {
+        "description": "小红书视频合并发送",
+        "type": "bool",
+        "hint": "仅对视频笔记生效。开启时发送卡片+视频的合并转发；关闭时只发送单独视频。图文笔记始终使用合并转发（卡片+图片）。",
+        "default": true
+    },
+    "xhs_download_original": {
+        "description": "下载小红书原图",
+        "type": "bool",
+        "hint": "开启后尝试下载PNG无损原图，失败则尝试JPEG原图，再失败回退到普通解析。",
+        "default": true
+    },
+    "xhs_use_cookies": {
+        "description": "小红书使用Cookies",
+        "type": "bool",
+        "hint": "开启后使用xhs_cookies.txt中的cookies，一般不需要开启。",
+        "default": false
+    },
+    "xhs_auto_unmerge_threshold_mb": {
+        "description": "小红书自动解合阈值(MB)",
+        "type": "int",
+        "hint": "当下载的图片总大小超过此值时，改为逐条发送，防止客户端崩溃。设为0禁用。",
+        "default": 50
+    },
+    "retry_count": {
+        "description": "解析失败重试次数",
+        "type": "int",
+        "hint": "各平台解析失败时的重试次数，设为0禁用重试",
+        "default": 3,
+        "min": 0,
+        "max": 10
+    },
+    "api_timeout_sec": {
+        "description": "发送消息超时(秒)",
+        "type": "int",
+        "hint": "aiocqhttp API 超时时间，发送大图需要较长时间。",
+        "default": 600
+    },
+    "reaction_emoji_enabled": {
+        "description": "识别后表情回应",
+        "type": "bool",
+        "hint": "识别到链接/卡片后点一个表情，提示开始处理。",
+        "default": true
+    },
+    "reaction_emoji_id": {
+        "description": "回应表情ID",
+        "type": "int",
+        "hint": "调用 set_msg_emoji_like 的 emoji_id，粑粑是128169, OK是124。",
+        "default": 128169
+    },
+    "max_video_size_mb": {
+        "description": "最大视频大小 (MB)",
+        "type": "int",
+        "hint": "超过此大小的视频将不会下载。设置为 0 表示无限制。",
+        "default": 200,
+        "min": 0,
+        "max": 1000
+    },
+    "auto_cleanup_delay": {
+        "description": "视频自动清理延迟 (秒)",
+        "type": "int",
+        "hint": "视频发送后自动删除的延迟时间（秒）。",
+        "default": 60,
+        "min": 10,
+        "max": 3600
+    }
+}
