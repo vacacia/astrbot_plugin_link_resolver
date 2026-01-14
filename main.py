@@ -14,7 +14,7 @@ import astrbot.api.message_components as Comp
 from astrbot.api.star import Context, Star, register
 
 from .core.bilibili import BILI_MESSAGE_PATTERN, BilibiliMixin
-from .core.common import DOWNLOAD_HEADERS, SizeLimitExceeded, BILI_COOKIES_FILE
+from .core.common import DOWNLOAD_HEADERS, SizeLimitExceeded, get_bili_cookies_file
 from .core.douyin import DOUYIN_MESSAGE_PATTERN, DouyinExtractor
 from .core.douyin.handler import DouyinMixin
 from .core.xiaohongshu import (
@@ -42,22 +42,15 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.douyin_extractor = DouyinExtractor()
         self.xhs_extractor = XiaohongshuExtractor()
         self.xhs_renderer = XiaohongshuCardRenderer(find_default_font())
-        self.processed_urls: dict[str, float] = {} # url_hash -> timestamp
         self._refresh_config()
 
     # region 配置
-    def _get_config_value(self, new_key: str, old_key: str | None, default):
-        sentinel = object()
-        value = self.config.get(new_key, sentinel)
-        if value is sentinel and old_key:
-            value = self.config.get(old_key, sentinel)
-        if value is sentinel:
-            return default
-        return value
+    def _get_config_value(self, key: str, default):
+        return self.config.get(key, default)
 
     def _refresh_config(self) -> None:
         # 平台启用列表
-        enable_platforms = self._get_config_value("enable_platforms", None, ["B站", "抖音", "小红书"])
+        enable_platforms = self._get_config_value("enable_platforms", ["B站", "抖音", "小红书"])
         if not isinstance(enable_platforms, list):
             enable_platforms = ["B站", "抖音", "小红书"]
         self.bili_enabled = "B站" in enable_platforms
@@ -65,86 +58,52 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.xhs_enabled = "小红书" in enable_platforms
         
         # B站配置
-        self.quality_label = str(
-            self._get_config_value("bili_video_quality", "video_quality", "720P")
-        )
-        self.codecs_label = str(
-            self._get_config_value("bili_video_codecs", "video_codecs", "AVC")
-        )
-        self.allow_hdr = bool(self._get_config_value("bili_allow_hdr", "allow_hdr", False))
-        self.allow_dolby = bool(
-            self._get_config_value("bili_allow_dolby", "allow_dolby", False)
-        )
-        self.bili_merge_send = bool(
-            self._get_config_value("bili_merge_send", "merge_send", False)
-        )
-        self.enable_multi_page = bool(
-            self._get_config_value("bili_enable_multi_page", "enable_multi_page", True)
-        )
-        self.multi_page_max = max(
-            1,
-            int(self._get_config_value("bili_multi_page_max", "multi_page_max", 3)),
-        )
-        self.allow_quality_fallback = bool(
-            self._get_config_value("bili_allow_quality_fallback", None, True)
-        )
+        self.quality_label = str(self._get_config_value("bili_video_quality", "720P"))
+        self.codecs_label = str(self._get_config_value("bili_video_codecs", "AVC"))
+        self.allow_hdr = bool(self._get_config_value("bili_allow_hdr", False))
+        self.allow_dolby = bool(self._get_config_value("bili_allow_dolby", False))
+        self.bili_merge_send = bool(self._get_config_value("bili_merge_send", False))
+        self.enable_multi_page = bool(self._get_config_value("bili_enable_multi_page", True))
+        self.multi_page_max = max(1, int(self._get_config_value("bili_multi_page_max", 3)))
+        self.allow_quality_fallback = bool(self._get_config_value("bili_allow_quality_fallback", True))
         # 从配置读取 Cookie 并写入文件
-        bili_cookies_str = str(self._get_config_value("bili_cookies", None, "")).strip()
+        bili_cookies_str = str(self._get_config_value("bili_cookies", "")).strip()
         if bili_cookies_str:
             try:
-                BILI_COOKIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+                cookies_file = get_bili_cookies_file()
+                cookies_file.parent.mkdir(parents=True, exist_ok=True)
                 # 恢复 Netscape 格式的换行符（网页配置粘贴时可能丢失）
-                # 每个 cookie 条目以域名开头，如 .bilibili.com 或 .www.bilibili.com
                 if "\n" not in bili_cookies_str and ".bilibili.com" in bili_cookies_str:
-                    # 在每个 .xxx.bilibili.com 或 .bilibili.com 前添加换行
                     bili_cookies_str = re.sub(
                         r"\s+(\.(?:www\.)?bilibili\.com\s)",
                         r"\n\1",
-                        bili_cookies_str
+                        bili_cookies_str,
                     )
-                    # 处理注释行
-                    bili_cookies_str = bili_cookies_str.replace("# ", "\n# ")
-                    bili_cookies_str = bili_cookies_str.strip()
-                BILI_COOKIES_FILE.write_text(bili_cookies_str, encoding="utf-8")
+                    bili_cookies_str = bili_cookies_str.replace("# ", "\n# ").strip()
+                cookies_file.write_text(bili_cookies_str, encoding="utf-8")
                 logger.info("🍪 B站 Cookie 已从配置写入文件")
             except Exception as exc:
                 logger.warning("🍪 写入 B站 Cookie 文件失败: %s", str(exc))
         
         # 抖音配置
-        self.douyin_max_media = max(
-            1, int(self._get_config_value("douyin_max_media", None, 9))
-        )
-        self.douyin_merge_send = bool(
-            self._get_config_value("douyin_merge_send", None, True)
-        )
+        self.douyin_max_media = max(1, int(self._get_config_value("douyin_max_media", 9)))
+        self.douyin_merge_send = bool(self._get_config_value("douyin_merge_send", True))
         
         # 小红书配置
-        self.xhs_max_media = max(1, int(self._get_config_value("xhs_max_media", None, 15)))
-        self.xhs_merge_send = bool(self._get_config_value("xhs_merge_send", None, True))
-        self.xhs_download_original = bool(self._get_config_value("xhs_download_original", None, True))
-        self.xhs_use_cookies = bool(self._get_config_value("xhs_use_cookies", None, False))
-        self.xhs_auto_unmerge_threshold_mb = int(self._get_config_value("xhs_auto_unmerge_threshold_mb", None, 20))
+        self.xhs_max_media = max(1, int(self._get_config_value("xhs_max_media", 99)))
+        self.xhs_merge_send = bool(self._get_config_value("xhs_merge_send", True))
+        self.xhs_download_original = bool(self._get_config_value("xhs_download_original", True))
+        self.xhs_use_cookies = bool(self._get_config_value("xhs_use_cookies", False))
+        self.xhs_auto_unmerge_threshold_mb = int(self._get_config_value("xhs_auto_unmerge_threshold_mb", 50))
         
         # 通用配置
-        # 统一的重试次数（兼容旧配置 bili_retry_count / douyin_retry_count）
-        self.retry_count = max(
-            0, int(self._get_config_value(
-                "retry_count", 
-                None, 
-                self._get_config_value("bili_retry_count", "douyin_retry_count", 3)
-            ))
-        )
-        self.api_timeout_sec = max(60, int(self._get_config_value("api_timeout_sec", None, 600)))
-        self.reaction_emoji_enabled = bool(
-            self._get_config_value("reaction_emoji_enabled", None, True)
-        )
-        self.reaction_emoji_id = self._coerce_positive_int(
-            self._get_config_value("reaction_emoji_id", "reaction_emoji", None),
-            289,
-        )
+        self.retry_count = max(0, int(self._get_config_value("retry_count", 3)))
+        self.api_timeout_sec = max(60, int(self._get_config_value("api_timeout_sec", 600)))
+        self.reaction_emoji_enabled = bool(self._get_config_value("reaction_emoji_enabled", True))
+        self.reaction_emoji_id = self._coerce_positive_int(self._get_config_value("reaction_emoji_id", 128169), 128169)
         self.reaction_emoji_type = "1"  # 固定值，无需配置
-        self.max_video_size_mb = int(self._get_config_value("max_video_size_mb", None, 200))
-        self.cleanup_delay = int(self._get_config_value("auto_cleanup_delay", None, 60))
+        self.max_video_size_mb = int(self._get_config_value("max_video_size_mb", 200))
+        self.cleanup_delay = int(self._get_config_value("auto_cleanup_delay", 60))
 
         alias = self._normalize_quality_alias(self.quality_label)
         if alias == "HDR":
@@ -170,23 +129,6 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     # endregion
 
     # region 解析任务管理
-    def _is_duplicate_task(self, event: AstrMessageEvent) -> bool:
-        """检查当前消息是否已有其他任务正在处理"""
-        message_id = self._extract_reaction_message_id(event)
-        if not message_id:
-            return False
-            
-        current_task = asyncio.current_task()
-        for task in asyncio.all_tasks(): # 检查所有 active tasks
-            if task is current_task:
-                continue
-            name = task.get_name()
-            # Task name format: myparser-parse:{kind}:{message_id}:{timestamp}
-            if name.startswith(f"{TASK_NAME_PREFIX}:") and f":{message_id}:" in name:
-                logger.warning("⚠️ 检测到重复任务，跳过处理: %s (MsgID: %s)", name, message_id)
-                return True
-        return False
-
     def _register_parse_task(self, kind: str, event: AstrMessageEvent | None = None) -> None:
         task = asyncio.current_task()
         if task is None:
@@ -270,27 +212,23 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     # endregion
 
     # region 通用工具
-    def _check_and_record_url(self, url: str) -> bool:
-        """检查 URL 是否在短时间内已处理过。如果已处理返回 False，否则记录并返回 True"""
-        if not url:
-            return True
-        import time
-        now = time.time()
-        url_hash = self._hash_url(url)
-        
-        # 清理过期记录 (保留最近 120 秒)
-        expired = [k for k, v in self.processed_urls.items() if now - v > 120]
-        for k in expired:
-            del self.processed_urls[k]
-            
-        if url_hash in self.processed_urls:
-            last_time = self.processed_urls[url_hash]
-            if now - last_time < 60: # 60秒内重复
-                logger.warning("⚠️ URL 已在 %d秒前处理过，跳过: %s", int(now - last_time), url)
-                return False
-        
-        self.processed_urls[url_hash] = now
-        return True
+    def _has_json_component(self, event: AstrMessageEvent) -> bool:
+        if not hasattr(event, "message_obj") or not hasattr(event.message_obj, "message"):
+            return False
+        for component in event.message_obj.message:
+            if isinstance(component, dict):
+                comp_type = component.get("type")
+                if comp_type == "reply":
+                    continue
+                if comp_type and "json" in str(comp_type).lower():
+                    return True
+                continue
+            if isinstance(component, Comp.Json):
+                return True
+            comp_type = getattr(component, "type", None)
+            if comp_type and "json" in str(comp_type).lower():
+                return True
+        return False
 
     @staticmethod
     def _coerce_positive_int(value: object, default: int) -> int:
@@ -570,6 +508,8 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                         if content_length and max_bytes and int(content_length) > max_bytes:
                             raise SizeLimitExceeded("超过大小限制")
                         bytes_written = 0
+                
+                        # Actually, wrapping each write is fine if chunks are large
                         with open(temp_path, "wb") as file:
                             async for chunk in response.aiter_bytes(1024 * 1024):
                                 if not chunk:
@@ -577,21 +517,21 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                                 bytes_written += len(chunk)
                                 if max_bytes and bytes_written > max_bytes:
                                     raise SizeLimitExceeded("超过大小限制")
-                                file.write(chunk)
-                temp_path.replace(output_path)
+                                await asyncio.to_thread(file.write, chunk)
+                await asyncio.to_thread(temp_path.replace, output_path)
                 return bytes_written
             except asyncio.CancelledError:
                 if temp_path.exists():
-                    temp_path.unlink(missing_ok=True)
+                    await asyncio.to_thread(temp_path.unlink, missing_ok=True)
                 raise
             except SizeLimitExceeded:
                 if temp_path.exists():
-                    temp_path.unlink(missing_ok=True)
+                    await asyncio.to_thread(temp_path.unlink, missing_ok=True)
                 raise
             except Exception as exc:
                 last_error = exc
                 if temp_path.exists():
-                    temp_path.unlink(missing_ok=True)
+                    await asyncio.to_thread(temp_path.unlink, missing_ok=True)
                 if attempt < retries - 1:
                     wait_time = 2 ** attempt
                     logger.warning("下载失败, %d秒后重试 (%d/%d): %s", wait_time, attempt + 1, retries, str(exc))
@@ -624,15 +564,15 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             if process.returncode != 0:
                 raise RuntimeError(stderr.decode().strip())
         finally:
-            v_path.unlink(missing_ok=True)
-            a_path.unlink(missing_ok=True)
+            await asyncio.to_thread(v_path.unlink, missing_ok=True)
+            await asyncio.to_thread(a_path.unlink, missing_ok=True)
 
     async def download_thumbnail(self, url: str, save_path: Path) -> bool:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(url)
                 if response.status_code == 200:
-                    save_path.write_bytes(response.content)
+                    await asyncio.to_thread(save_path.write_bytes, response.content)
                     return True
         except asyncio.CancelledError:
             raise
@@ -640,16 +580,18 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             logger.error("❌ 下载封面失败: %s", str(exc))
         return False
 
-    @staticmethod
-    def calculate_md5(file_path: Path) -> str:
-        hasher = hashlib.md5()
-        with open(file_path, "rb") as file:
-            while chunk := file.read(8192):
-                hasher.update(chunk)
-        return hasher.hexdigest()
+    async def calculate_md5(self, file_path: Path) -> str:
+        def _sync_md5():
+            hasher = hashlib.md5()
+            with open(file_path, "rb") as file:
+                while chunk := file.read(8192):
+                    hasher.update(chunk)
+            return hasher.hexdigest()
+        return await asyncio.to_thread(_sync_md5)
 
     async def cleanup_files(self, video_paths: list[Path], thumbnail_paths: list[Path]) -> None:
-        await asyncio.sleep(self.cleanup_delay)
+        # Direct Send Pattern: 调用此方法时，文件已通过 await event.send() 被读取完毕
+        # 无需延迟，立即清理以避免与后续相同 URL 请求产生竞态条件
         for video_path in video_paths:
             video_path.unlink(missing_ok=True)
         for thumb_path in thumbnail_paths:
@@ -662,27 +604,24 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     # region 事件处理器
     @filter.regex(BILI_MESSAGE_PATTERN, priority=10)
     async def handle_bili_video(self, event: AstrMessageEvent):
-        if self._is_duplicate_task(event):
+        if self._has_json_component(event):
             return
         self._register_parse_task("bili", event)
-        async for result in BilibiliMixin.handle_bili_video(self, event):
-            yield result
+        await BilibiliMixin.handle_bili_video(self, event)
 
     @filter.regex(DOUYIN_MESSAGE_PATTERN, priority=10)
     async def handle_douyin(self, event: AstrMessageEvent):
-        if self._is_duplicate_task(event):
+        if self._has_json_component(event):
             return
         self._register_parse_task("douyin", event)
-        async for result in DouyinMixin.handle_douyin(self, event):
-            yield result
+        await DouyinMixin.handle_douyin(self, event)
 
     @filter.regex(XHS_MESSAGE_PATTERN, priority=10)
     async def handle_xhs(self, event: AstrMessageEvent):
-        if self._is_duplicate_task(event):
+        if self._has_json_component(event):
             return
         self._register_parse_task("xhs", event)
-        async for result in XiaohongshuMixin.handle_xhs(self, event):
-            yield result
+        await XiaohongshuMixin.handle_xhs(self, event)
 
     @filter.regex(r".*")
     async def handle_json_card(self, event: AstrMessageEvent):
@@ -690,19 +629,9 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             return
         if await self._is_bot_muted(event):
             return
-        # 检查是否已有任务在处理此消息 (避免与正则处理程序冲突)
-        if self._is_duplicate_task(event):
-            return
-
-        msg = event.message_str
-        if (
-            re.search(BILI_MESSAGE_PATTERN, msg)
-            or re.search(DOUYIN_MESSAGE_PATTERN, msg)
-            or re.search(XHS_MESSAGE_PATTERN, msg)
-        ):
-            return
 
         links: list[str] = []
+        has_json_component = False
         if hasattr(event, "message_obj") and hasattr(event.message_obj, "message"):
             for component in event.message_obj.message:
                 is_json_component = False
@@ -722,8 +651,11 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                     if is_json_component and hasattr(component, "data"):
                         comp_payload = component.data
                 if is_json_component:
+                    has_json_component = True
                     logger.info("🎴 检测到 JSON 卡片消息: %s", component)
                     links.extend(self.extract_links_from_json(comp_payload))
+        if not has_json_component:
+            return
 
         if not links:
             return
@@ -738,8 +670,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             try:
                 ref = await self._resolve_video_ref_from_links(bili_links)
                 if ref:
-                    async for result in self._process_bili_video(event, ref=ref, is_from_card=True):
-                        yield result
+                    await self._process_bili_video(event, ref=ref, is_from_card=True)
                     return
                 logger.info("⚠️ 从卡片中找到 B 站链接但无法解析: %s", bili_links)
             except asyncio.CancelledError:
@@ -750,8 +681,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             self._register_parse_task("json-douyin", event)
             event.should_call_llm(True)
             try:
-                async for result in self._process_douyin(event, douyin_links[0], is_from_card=True):
-                    yield result
+                await self._process_douyin(event, douyin_links[0], is_from_card=True)
                 return
             except asyncio.CancelledError:
                 logger.info("♻️ JSON卡片解析任务已中断")
@@ -761,8 +691,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             self._register_parse_task("json-xhs", event)
             event.should_call_llm(True)
             try:
-                async for result in self._process_xhs(event, xhs_links[0], is_from_card=True):
-                    yield result
+                await self._process_xhs(event, xhs_links[0], is_from_card=True)
                 return
             except asyncio.CancelledError:
                 logger.info("♻️ JSON卡片解析任务已中断")

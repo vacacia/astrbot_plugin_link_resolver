@@ -11,7 +11,7 @@ import aiohttp
 from astrbot.api import logger
 
 # Cookie 文件路径（从 common 模块导入）
-from ..common import XHS_COOKIES_FILE
+from ..common import get_xhs_cookies_file
 
 
 # region 常量
@@ -30,8 +30,8 @@ _COMMON_HEADERS = {
     )
 }
 
-# iOS headers (用于短链接重定向)
-_IOS_HEADERS = {
+# headers (用于短链接重定向)
+XHS_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) "
         "Version/16.6 Mobile/15E148 Safari/604.1 Edg/132.0.0.0"
@@ -55,8 +55,7 @@ _EXPLORE_HEADERS = {
     ),
 }
 
-# 兼容旧代码的导出
-XHS_HEADERS = _IOS_HEADERS
+
 
 _SHORT_RE = re.compile(XHS_SHORT_LINK_PATTERN, re.IGNORECASE)
 _NOTE_ID_RE = re.compile(r"/(?:explore|discovery/item)/(?P<id>[0-9a-zA-Z]+)", re.IGNORECASE)
@@ -107,10 +106,11 @@ class XiaohongshuParseError(RuntimeError):
 
 def load_xhs_cookies() -> dict[str, str]:
     """加载小红书 cookies（支持 JSON 格式或 Netscape cookies.txt 格式）"""
-    if not XHS_COOKIES_FILE.exists():
+    cookies_file = get_xhs_cookies_file()
+    if not cookies_file.exists():
         return {}
     try:
-        raw = XHS_COOKIES_FILE.read_text(encoding="utf-8").strip()
+        raw = cookies_file.read_text(encoding="utf-8").strip()
         if not raw:
             return {}
         # 尝试 JSON 格式
@@ -126,7 +126,7 @@ def load_xhs_cookies() -> dict[str, str]:
     # 尝试 Netscape cookies.txt 格式
     try:
         jar = cookiejar.MozillaCookieJar()
-        jar.load(XHS_COOKIES_FILE, ignore_discard=True, ignore_expires=True)
+        jar.load(str(get_xhs_cookies_file()), ignore_discard=True, ignore_expires=True)
         cookies = {cookie.name: cookie.value for cookie in jar}
         logger.info("🍪 小红书 cookies 加载成功 (Netscape): %d 个", len(cookies))
         return cookies
@@ -182,7 +182,7 @@ class XiaohongshuExtractor:
     async def _get_redirect_url(self, url: str) -> str:
         """获取短链接重定向目标（单次重定向）"""
         async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
-            async with session.get(url, headers=_IOS_HEADERS, allow_redirects=False) as resp:
+            async with session.get(url, headers=XHS_HEADERS, allow_redirects=False) as resp:
                 if resp.status >= 400:
                     raise XiaohongshuParseError(f"短链接请求失败: {resp.status}")
                 location = resp.headers.get("Location", url)
@@ -214,7 +214,7 @@ class XiaohongshuExtractor:
     async def _parse_discovery(self, url: str) -> XiaohongshuResult:
         """解析 discovery 页面"""
         async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
-            async with session.get(url, headers=_IOS_HEADERS, allow_redirects=True) as resp:
+            async with session.get(url, headers=XHS_HEADERS, allow_redirects=True) as resp:
                 logger.debug("XHS discovery url: %s, status: %s", resp.url, resp.status)
                 if resp.status != 200:
                     raise XiaohongshuParseError(f"页面请求失败: {resp.status}")
@@ -413,7 +413,6 @@ class XiaohongshuExtractor:
 
 # 导出
 __all__ = [
-    "XHS_COOKIES_FILE",
     "XHS_HEADERS",
     "XHS_MESSAGE_PATTERN",
     "XHS_SHORT_LINK_PATTERN",

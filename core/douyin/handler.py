@@ -3,10 +3,15 @@ import asyncio
 from pathlib import Path
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Image, Node, Nodes, Video
 
-from ..common import DOUYIN_VIDEO_PATH, DOUYIN_IMAGE_PATH, DOUYIN_CARD_PATH, SizeLimitExceeded
+from ..common import (
+    SizeLimitExceeded,
+    get_douyin_video_path,
+    get_douyin_image_path,
+    get_douyin_card_path,
+)
 from .render import DouyinCardRenderer
 from . import (
     ANDROID_HEADERS,
@@ -24,7 +29,7 @@ class DouyinMixin:
     # region 下载与路径
     def _build_douyin_path(self, url: str, is_video: bool) -> Path:
         suffix = ".mp4" if is_video else ".jpg"
-        base_dir = DOUYIN_VIDEO_PATH if is_video else DOUYIN_IMAGE_PATH
+        base_dir = get_douyin_video_path() if is_video else get_douyin_image_path()
         return base_dir / f"{self._hash_url(url)}{suffix}"
 
     async def _download_douyin_video(self, url: str) -> Path:
@@ -54,7 +59,7 @@ class DouyinMixin:
         try:
             # 使用哈希生成文件名
             name = self._hash_url(cover_url)
-            cover_path = DOUYIN_CARD_PATH / f"{name}_cover.jpg"
+            cover_path = get_douyin_card_path() / f"{name}_cover.jpg"
             await self._download_stream(cover_url, cover_path, cookies=None, max_bytes=None, headers=ANDROID_HEADERS)
             return cover_path
         except Exception:
@@ -95,7 +100,7 @@ class DouyinMixin:
             
             # 使用标题哈希作为卡片文件名
             name = self._hash_url(title + author)
-            card_path = DOUYIN_CARD_PATH / f"{name}_card.png"
+            card_path = get_douyin_card_path() / f"{name}_card.png"
             # save 操作也放在线程池中
             await asyncio.to_thread(card_img.save, card_path)
             return card_path
@@ -116,9 +121,6 @@ class DouyinMixin:
             return
             
         target_link = (target_link or "").strip()
-        # 初步去重：如果链接完全一致，直接跳过
-        if target_link and not self._check_and_record_url(target_link):
-            return
 
         source_tag = "(来自卡片)" if is_from_card else ""
         await self._send_reaction_emoji(event, source_tag)
@@ -170,9 +172,6 @@ class DouyinMixin:
         
         if result is None:
             logger.error("❌ 抖音解析最终失败%s: %s, 解析耗时=%.2fs", source_tag, last_error, timing["parse"])
-            return
-
-        if result.item_id and not self._check_and_record_url(f"douyin:{result.item_id}"):
             return
 
         logger.debug(
@@ -316,11 +315,11 @@ class DouyinMixin:
                 nodes.nodes.append(Node(uin=self_id, name="DouyinBot", content=[component]))
             
             logger.debug("🚀 抖音合并消息准备发送%s: 节点数=%d", source_tag, len(nodes.nodes))
-            yield event.chain_result([nodes])
+            await event.send(MessageChain([nodes]))
         else:
             # 非合并转发（仅视频笔记可能走到这里）：只发送单独视频
             logger.debug("🚀 抖音普通消息准备发送%s: 媒体数=%d", source_tag, len(media_components))
-            yield event.chain_result([media_components[0]])
+            await event.send(MessageChain([media_components[0]]))
 
         timing["send"] = time_module.perf_counter() - send_start
         # endregion
@@ -339,9 +338,9 @@ class DouyinMixin:
             timing.get("send", 0),
             total_elapsed,
         )
-
+        # 发送完成后立即清理文件（Direct Send Pattern：此时文件已被读取）
         if media_paths:
-            asyncio.create_task(self.cleanup_files(media_paths, []))
+            await self.cleanup_files(media_paths, [])
     # endregion
 
     # region 事件处理器
@@ -360,8 +359,7 @@ class DouyinMixin:
         if not links:
             return
         try:
-            async for result in self._process_douyin(event, links[0], is_from_card=False):
-                yield result
+            await self._process_douyin(event, links[0], is_from_card=False)
         except asyncio.CancelledError:
             logger.info("♻️ 抖音解析任务已中断")
             return

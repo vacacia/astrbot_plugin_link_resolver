@@ -6,10 +6,15 @@ from urllib.parse import urlparse
 
 import aiohttp
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Image, Node, Nodes, Video
 
-from ..common import XHS_VIDEO_PATH, XHS_IMAGE_PATH, XHS_CARD_PATH, SizeLimitExceeded
+from ..common import (
+    SizeLimitExceeded,
+    get_xhs_video_path,
+    get_xhs_image_path,
+    get_xhs_card_path,
+)
 from . import (
     XHS_HEADERS,
     XHS_MESSAGE_PATTERN,
@@ -26,11 +31,11 @@ class XiaohongshuMixin:
     # region 路径与候选构建
     def _build_xhs_path(self, url: str, is_video: bool) -> Path:
         suffix = ".mp4" if is_video else self._guess_media_suffix(url, ".jpg")
-        base_dir = XHS_VIDEO_PATH if is_video else XHS_IMAGE_PATH
+        base_dir = get_xhs_video_path() if is_video else get_xhs_image_path()
         return base_dir / f"{self._hash_url(url)}{suffix}"
 
     def _build_xhs_card_path(self, source_url: str) -> Path:
-        return XHS_CARD_PATH / f"{self._hash_url(source_url)}_card.png"
+        return get_xhs_card_path() / f"{self._hash_url(source_url)}_card.png"
 
     @staticmethod
     def _force_https(url: str) -> str:
@@ -196,13 +201,15 @@ class XiaohongshuMixin:
                                     
                                     final_output = output_path.with_suffix(actual_suffix)
                                     temp_path = final_output.with_suffix(final_output.suffix + ".part")
-                                    with open(temp_path, "wb") as f:
-                                        f.write(content)
-                                    if temp_path.exists():
-                                        temp_path.replace(final_output)
+                                    def _save():
+                                        with open(temp_path, "wb") as f:
+                                            f.write(content)
+                                        if temp_path.exists():
+                                            temp_path.replace(final_output)
+                                    await asyncio.to_thread(_save)
                                     
                                     total_elapsed = time_module.perf_counter() - start_time
-                                    logger.info(
+                                    logger.debug(
                                         "XHS 原图下载成功 (%s): size=%.1fMB, 请求耗时=%.2fs, 总耗时=%.2fs",
                                         desc, content_len / 1024 / 1024, attempt_elapsed, total_elapsed
                                     )
@@ -287,10 +294,12 @@ class XiaohongshuMixin:
                                 content = await resp.read()
                                 if len(content) >= 1024:
                                     temp_path = output_path.with_suffix(output_path.suffix + ".part")
-                                    with open(temp_path, "wb") as f:
-                                        f.write(content)
-                                    if temp_path.exists():
-                                        temp_path.replace(output_path)
+                                    def _save_fallback():
+                                        with open(temp_path, "wb") as f:
+                                            f.write(content)
+                                        if temp_path.exists():
+                                            temp_path.replace(output_path)
+                                    await asyncio.to_thread(_save_fallback)
                                     
                                     attempt_elapsed = time_module.perf_counter() - attempt_start
                                     total_elapsed = time_module.perf_counter() - start_time
@@ -413,10 +422,6 @@ class XiaohongshuMixin:
         await self._send_reaction_emoji(event, source_tag)
 
         target_link = (target_link or "").strip()
-        
-        # 初步去重
-        if target_link and not self._check_and_record_url(target_link):
-            return
             
         if not target_link:
             logger.info("⚠️ 小红书链接为空%s", source_tag)
@@ -445,10 +450,6 @@ class XiaohongshuMixin:
             return
         timing["parse"] = time_module.perf_counter() - parse_start
         # endregion
-
-        # 根据 note_id 去重
-        if result.note_id and not self._check_and_record_url(f"xhs:{result.note_id}"):
-            return
 
         logger.debug(
             "🍠 小红书解析完成%s: 视频=%s, 图片=%s, 解析耗时=%.2fs",
@@ -576,12 +577,12 @@ class XiaohongshuMixin:
             self_id = str(event.get_self_id())
             for component in media_components:
                 nodes.nodes.append(Node(uin=self_id, name="MyParser", content=[component]))
-            yield event.chain_result([nodes])
+            await event.send(MessageChain([nodes]))
         else:
             if is_image_post:
                 # 图文笔记逐条发送（触发解合阈值时）
                 for i, component in enumerate(media_components):
-                    yield event.chain_result([component])
+                    await event.send(MessageChain([component]))
                     if i < len(media_components) - 1:
                         await asyncio.sleep(2.0)
             else:
@@ -589,7 +590,7 @@ class XiaohongshuMixin:
                 # 找到视频组件（第一个非卡片的组件）
                 for component in media_components:
                     if isinstance(component, Video):
-                        yield event.chain_result([component])
+                        await event.send(MessageChain([component]))
                         break
 
         timing["send"] = time_module.perf_counter() - send_start
@@ -610,8 +611,9 @@ class XiaohongshuMixin:
             total_elapsed,
         )
 
+        # 发送完成后立即清理文件（Direct Send Pattern：此时文件已被读取）
         if media_paths:
-            asyncio.create_task(self.cleanup_files(media_paths, []))
+            await self.cleanup_files(media_paths, [])
     # endregion
 
     # region 事件处理器
@@ -630,8 +632,7 @@ class XiaohongshuMixin:
         if not links:
             return
         try:
-            async for result in self._process_xhs(event, links[0], is_from_card=False):
-                yield result
+            await self._process_xhs(event, links[0], is_from_card=False)
         except asyncio.CancelledError:
             logger.info("♻️ 小红书解析任务已中断")
             return

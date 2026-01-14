@@ -1,5 +1,5 @@
 httpx
-yt-dlp
 bilibili-api
 msgspec
 Pillow
+aiohttp

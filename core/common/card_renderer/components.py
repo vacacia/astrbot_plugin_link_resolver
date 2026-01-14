@@ -206,8 +206,10 @@ def draw_play_icon(
     image: Image.Image,
     x: int,
     y: int,
-    size: int,
+    width: int,
+    height: int | None = None,
     icon_scale: float = 0.18,
+    max_radius: int = 52,
 ) -> None:
     """在图像上绘制播放图标
 
@@ -215,14 +217,21 @@ def draw_play_icon(
         image: 目标图像（将被原地修改）
         x: 图片区域左上角 x 坐标
         y: 图片区域左上角 y 坐标
-        size: 图片区域尺寸
+        width: 图片区域宽度
+        height: 图片区域高度，None 表示与宽度相同
         icon_scale: 图标相对于图片的缩放比例
     """
-    radius = int(size * icon_scale)
-    center_x = size // 2
-    center_y = size // 2
+    height = width if height is None else height
+    base_size = min(width, height)
+    radius = int(base_size * icon_scale)
+    if max_radius > 0:
+        radius = min(radius, max_radius)
+    if radius <= 0:
+        return
+    center_x = width // 2
+    center_y = height // 2
 
-    overlay = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
     # 半透明圆形背景

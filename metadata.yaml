@@ -1,6 +1,6 @@
 name: astrbot_plugin_link_resolver 
 desc: 小红书无水印原图解析; B站视频解析; 抖音视频/图文解析 
 help: 监听 B 站/抖音/小红书链接，自动解析并发送视频或图片 
-version: v1.0.1 
+version: v1.0.2 
 author: Acacia 
 repo: https://github.com/vacacia/astrbot_plugin_link_resolver 

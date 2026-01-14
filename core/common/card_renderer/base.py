@@ -311,7 +311,7 @@ class UniversalCardRenderer:
             img = grid.images[0]
             base.paste(img, (x_start, y))
             if is_video:
-                draw_play_icon(base, x_start, y, img.width)
+                draw_play_icon(base, x_start, y, img.width, img.height)
             return
 
         # 多图网格
@@ -325,7 +325,7 @@ class UniversalCardRenderer:
                 y_pos = y + self.GRID_GAP + row * (grid.tile_size + self.GRID_GAP)
                 base.paste(img, (x, y_pos))
                 if is_video and img_index == 0:
-                    draw_play_icon(base, x, y_pos, grid.tile_size)
+                    draw_play_icon(base, x, y_pos, grid.tile_size, grid.tile_size)
                 img_index += 1
 
 

@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Image, Node, Nodes, Plain, Video
 from bilibili_api import Credential, video
 from bilibili_api.video import (
@@ -21,7 +21,14 @@ from bilibili_api.video import (
     VideoStreamDownloadURL,
 )
 
-from ..common import DOWNLOAD_HEADERS, BILIBILI_VIDEO_PATH, BILIBILI_THUMB_PATH, BILIBILI_CARD_PATH, BILI_COOKIES_FILE, SizeLimitExceeded
+from ..common import (
+    DOWNLOAD_HEADERS,
+    SizeLimitExceeded,
+    get_bilibili_video_path,
+    get_bilibili_thumb_path,
+    get_bilibili_card_path,
+    get_bili_cookies_file,
+)
 from ..common.card_renderer import UniversalCardRenderer, CardData, get_theme_for_platform
 # endregion
 
@@ -75,10 +82,9 @@ CODECS_ALIAS_MAP = {
 }
 # endregion
 
-# region 路径常量（使用 common 导出的路径）
-BILI_VIDEO_PATH = BILIBILI_VIDEO_PATH
-BILI_THUMBNAIL_PATH = BILIBILI_THUMB_PATH
-BILI_QQ_THUMB_PATH = ""
+# region 路径常量（延迟获取）
+# 注意：这些路径使用函数获取，确保在 StarTools 初始化后调用
+BILI_QQ_THUMB_PATH = ""  # QQ 自定义缩略图路径（空字符串表示禁用）
 # endregion
 
 # region 数据类
@@ -345,27 +351,67 @@ class BilibiliMixin:
     # endregion
 
     # region Cookie凭证
-    def _load_cookies(self) -> dict[str, str]:
-        if not BILI_COOKIES_FILE.exists():
+    @staticmethod
+    def _parse_cookie_header(raw: str) -> dict[str, str]:
+        if not raw:
+            return {}
+        ignore_attrs = {"path", "domain", "expires", "max-age", "secure", "httponly", "samesite"}
+        cookies: dict[str, str] = {}
+        for part in raw.split(";"):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            name, value = part.split("=", 1)
+            name = name.strip()
+            if not name or name.lower() in ignore_attrs:
+                continue
+            cookies[name] = value.strip()
+        return cookies
+
+    def _load_cookies_from_file(self, cookies_file: Path) -> dict[str, str]:
+        if not cookies_file.exists():
             return {}
         try:
-            raw = BILI_COOKIES_FILE.read_text(encoding="utf-8").strip()
-            if not raw:
-                return {}
-            if raw.lstrip().startswith("{"):
+            raw = cookies_file.read_text(encoding="utf-8").strip()
+        except Exception as exc:
+            logger.warning("🍪 读取 cookies 失败: %s", str(exc))
+            return {}
+        if not raw:
+            return {}
+        if raw.lstrip().startswith("{"):
+            try:
                 data = json.loads(raw)
                 if isinstance(data, dict):
                     return {str(k): str(v) for k, v in data.items()}
-        except Exception:
-            pass
-
+            except Exception:
+                pass
+        if ";" in raw and "\n" not in raw and "\t" not in raw:
+            header_cookies = self._parse_cookie_header(raw)
+            if header_cookies:
+                return header_cookies
         try:
             jar = cookiejar.MozillaCookieJar()
-            jar.load(BILI_COOKIES_FILE, ignore_discard=True, ignore_expires=True)
+            jar.load(str(cookies_file), ignore_discard=True, ignore_expires=True)
             return {cookie.name: cookie.value for cookie in jar}
         except Exception as exc:
             logger.warning("🍪 读取 cookies 失败: %s", str(exc))
             return {}
+
+    def _load_cookies(self) -> dict[str, str]:
+        primary = get_bili_cookies_file()
+        plugin_root = Path(__file__).resolve().parents[2]
+        candidates = [
+            primary,
+            plugin_root / "cookies" / "bili_cookies.txt",
+            plugin_root / "cookies" / "bilibili_cookies.txt",
+        ]
+        for path in candidates:
+            cookies = self._load_cookies_from_file(path)
+            if cookies:
+                if path != primary:
+                    logger.info("🍪 使用兼容路径读取 B站 Cookie: %s", path)
+                return cookies
+        return {}
 
     def _build_credential(self, cookies: dict[str, str]) -> Credential:
         if not cookies:
@@ -552,7 +598,7 @@ class BilibiliMixin:
             break
 
         suffix = f"_p{page_index + 1}" if page_count > 1 else ""
-        output_path = BILI_VIDEO_PATH / f"{bvid}{suffix}.mp4"
+        output_path = get_bilibili_video_path() / f"{bvid}{suffix}.mp4"
 
         if audio_url:
             temp_video = output_path.with_suffix(".video")
@@ -629,7 +675,7 @@ class BilibiliMixin:
         if not cover_url:
             return None
         try:
-            cover_path = BILIBILI_CARD_PATH / f"{bvid}_cover.jpg"
+            cover_path = get_bilibili_card_path() / f"{bvid}_cover.jpg"
             await self._download_stream(cover_url, cover_path, cookies=None, max_bytes=None)
             return cover_path
         except Exception as exc:
@@ -676,9 +722,10 @@ class BilibiliMixin:
                 },
             )
 
-            card_img = renderer.render(data)
-            card_path = BILIBILI_CARD_PATH / f"{bvid}_card.png"
-            card_img.save(card_path)
+            # 使用 asyncio.to_thread 避免阻塞事件循环
+            card_img = await asyncio.to_thread(renderer.render, data)
+            card_path = get_bilibili_card_path() / f"{bvid}_card.png"
+            await asyncio.to_thread(card_img.save, card_path)
 
             logger.info("✅ B站卡片渲染成功: %s", card_path)
             return card_path
@@ -698,11 +745,7 @@ class BilibiliMixin:
         self._refresh_config()
         if not self.bili_enabled:
             return
-            
-        dedup_key = ref.bvid or str(ref.avid or "")
-        if dedup_key and not self._check_and_record_url(f"bili:{dedup_key}"):
-            return
-            
+
         source_tag = "(来自卡片)" if is_from_card else ""
         await self._send_reaction_emoji(event, source_tag)
 
@@ -841,17 +884,17 @@ class BilibiliMixin:
                 
                 # region 发送阶段
                 send_start = time_module.perf_counter()
-                yield event.chain_result([nodes])
+                await event.send(MessageChain([nodes]))
                 timing["send"] = time_module.perf_counter() - send_start
                 # endregion
 
                 if BILI_QQ_THUMB_PATH and cover_url and video_paths:
                     for path in video_paths:
-                        video_md5 = self.calculate_md5(path)
-                        thumbnail_save_path = BILI_THUMBNAIL_PATH / f"{video_md5}.png"
+                        video_md5 = await self.calculate_md5(path)
+                        thumbnail_save_path = get_bilibili_thumb_path() / f"{video_md5}.png"
                         qq_thumb_path = Path(BILI_QQ_THUMB_PATH) / f"{video_md5}_0.png"
                         if await self.download_thumbnail(cover_url, thumbnail_save_path):
-                            shutil.copy(thumbnail_save_path, qq_thumb_path)
+                            await asyncio.to_thread(shutil.copy, thumbnail_save_path, qq_thumb_path)
                             thumbnail_paths.append(thumbnail_save_path)
 
                 # 输出完整耗时日志
@@ -866,9 +909,9 @@ class BilibiliMixin:
                     timing.get("send", 0),
                     total_elapsed,
                 )
-
+                # 发送完成后立即清理文件（Direct Send Pattern：此时文件已被读取）
                 if video_paths or thumbnail_paths:
-                    asyncio.create_task(self.cleanup_files(video_paths, thumbnail_paths))
+                    await self.cleanup_files(video_paths, thumbnail_paths)
                 return
 
             # 单P视频处理
@@ -898,11 +941,11 @@ class BilibiliMixin:
                     f"❌ 视频大小超过限制 ({self.max_video_size_mb}MB)，无法下载\n"
                     f"💡 当前画质设置: {self.quality_label}"
                 )
-                yield event.plain_result(video_info_text)
+                await event.send(MessageChain([Plain(video_info_text)]))
                 return
             except Exception as exc:
                 logger.error("❌ 视频下载失败%s: %s", source_tag, str(exc))
-                yield event.plain_result(f"❌ 视频下载失败: {str(exc)}")
+                await event.send(MessageChain([Plain(f"❌ 视频下载失败: {str(exc)}")]))
                 return
 
             timing["download"] = time_module.perf_counter() - download_start
@@ -945,21 +988,21 @@ class BilibiliMixin:
                         Node(uin=self_id, name="BiliBot", content=[video_component])
                     )
                     logger.debug("🚀 B站合并消息准备发送%s: 节点数=%d", source_tag, len(nodes.nodes))
-                    yield event.chain_result([nodes])
+                    await event.send(MessageChain([nodes]))
                 else:
                     # 非合并转发：只发视频
-                    logger.debug("� B站普通消息准备发送%s", source_tag)
-                    yield event.chain_result([video_component])
+                    logger.debug("🚀 B站普通消息准备发送%s", source_tag)
+                    await event.send(MessageChain([video_component]))
 
                 timing["send"] = time_module.perf_counter() - send_start
                 # endregion
 
                 if BILI_QQ_THUMB_PATH and cover_url:
-                    video_md5 = self.calculate_md5(video_path)
-                    thumbnail_save_path = BILI_THUMBNAIL_PATH / f"{video_md5}.png"
+                    video_md5 = await self.calculate_md5(video_path)
+                    thumbnail_save_path = get_bilibili_thumb_path() / f"{video_md5}.png"
                     qq_thumb_path = Path(BILI_QQ_THUMB_PATH) / f"{video_md5}_0.png"
                     if await self.download_thumbnail(cover_url, thumbnail_save_path):
-                        shutil.copy(thumbnail_save_path, qq_thumb_path)
+                        await asyncio.to_thread(shutil.copy, thumbnail_save_path, qq_thumb_path)
                         thumbnail_paths.append(thumbnail_save_path)
 
                 # 输出完整耗时日志
@@ -975,16 +1018,16 @@ class BilibiliMixin:
                     timing.get("send", 0),
                     total_elapsed,
                 )
-
+                # 发送完成后立即清理文件（Direct Send Pattern：此时文件已被读取）
                 if video_paths or thumbnail_paths:
-                    asyncio.create_task(self.cleanup_files(video_paths, thumbnail_paths))
+                    await self.cleanup_files(video_paths, thumbnail_paths)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.error("❌ 视频发送失败%s: %s", source_tag, str(exc))
-                yield event.plain_result(f"❌ 视频发送失败: {str(exc)}")
+                await event.send(MessageChain([Plain(f"❌ 视频发送失败: {str(exc)}")]))
                 if video_paths or thumbnail_paths:
-                    asyncio.create_task(self.cleanup_files(video_paths, thumbnail_paths))
+                    await self.cleanup_files(video_paths, thumbnail_paths)
         except asyncio.CancelledError:
             logger.info("♻️ B站解析任务已中断%s", source_tag)
             return
@@ -1005,8 +1048,7 @@ class BilibiliMixin:
             ref = await self._resolve_video_ref_from_text(event.message_str)
             if not ref:
                 return
-            async for result in self._process_bili_video(event, ref=ref, is_from_card=False):
-                yield result
+            await self._process_bili_video(event, ref=ref, is_from_card=False)
         except asyncio.CancelledError:
             logger.info("♻️ B站解析任务已中断")
             return

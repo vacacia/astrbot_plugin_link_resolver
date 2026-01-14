@@ -38,7 +38,7 @@
     "bili_merge_send": {
         "description": "B站合并发送",
         "type": "bool",
-        "hint": "开启后将 B 站视频信息和视频合并转发发送（多P默认合并）。不开启只发送单独视频",
+        "hint": "开启后将 B 站视频信息和视频合并转发发送（多P默认合并）。不开启只发送单独视频; 视频合并转发总是会有点bug, 推荐单独发送",
         "default": false
     },
     "bili_enable_multi_page": {
