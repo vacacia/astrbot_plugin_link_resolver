@@ -86,10 +86,23 @@ astrbot_plugin_link_resolver/
 
 ## 🍪 Cookies 配置（可选）
 
-如需使用自定义 Cookies（获取更高画质），可在 `cookies/` 目录下放置对应文件：
+填写 B 站 Cookie 可解锁更高画质（如 1080P60、4K）。
 
-- **B站**：`bili_cookies.txt` 
-- **小红书(好像并不需要)**：`xhs_cookies.txt` 
+### 方式一：管理面板配置（推荐）
+
+1. 安装浏览器插件 [Cookies txt](https://microsoftedge.microsoft.com/addons/detail/cookies-txt/dilbcaaegopfblcjdjikanigjbcbngbk?)
+2. 打开 [bilibili.com](https://www.bilibili.com) 并登录
+3. 点击插件的 **Load Cookies**，复制全部内容
+4. 在 AstrBot 管理面板 → 插件配置 → **B站Cookies** 粘贴
+
+![获取cookie的插件](docs/images/image.png)
+
+![点击 Load Cookies](docs/images/image-1.png)
+
+### 方式二：手动放置文件
+
+将 Cookie 内容保存到 `cookies/bili_cookies.txt`（插件会自动创建目录）
+
 
 ---
 

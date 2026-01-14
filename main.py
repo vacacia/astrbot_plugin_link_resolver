@@ -14,7 +14,7 @@ import astrbot.api.message_components as Comp
 from astrbot.api.star import Context, Star, register
 
 from .core.bilibili import BILI_MESSAGE_PATTERN, BilibiliMixin
-from .core.common import DOWNLOAD_HEADERS, SizeLimitExceeded
+from .core.common import DOWNLOAD_HEADERS, SizeLimitExceeded, BILI_COOKIES_FILE
 from .core.douyin import DOUYIN_MESSAGE_PATTERN, DouyinExtractor
 from .core.douyin.handler import DouyinMixin
 from .core.xiaohongshu import (
@@ -88,6 +88,27 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.allow_quality_fallback = bool(
             self._get_config_value("bili_allow_quality_fallback", None, True)
         )
+        # 从配置读取 Cookie 并写入文件
+        bili_cookies_str = str(self._get_config_value("bili_cookies", None, "")).strip()
+        if bili_cookies_str:
+            try:
+                BILI_COOKIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+                # 恢复 Netscape 格式的换行符（网页配置粘贴时可能丢失）
+                # 每个 cookie 条目以域名开头，如 .bilibili.com 或 .www.bilibili.com
+                if "\n" not in bili_cookies_str and ".bilibili.com" in bili_cookies_str:
+                    # 在每个 .xxx.bilibili.com 或 .bilibili.com 前添加换行
+                    bili_cookies_str = re.sub(
+                        r"\s+(\.(?:www\.)?bilibili\.com\s)",
+                        r"\n\1",
+                        bili_cookies_str
+                    )
+                    # 处理注释行
+                    bili_cookies_str = bili_cookies_str.replace("# ", "\n# ")
+                    bili_cookies_str = bili_cookies_str.strip()
+                BILI_COOKIES_FILE.write_text(bili_cookies_str, encoding="utf-8")
+                logger.info("🍪 B站 Cookie 已从配置写入文件")
+            except Exception as exc:
+                logger.warning("🍪 写入 B站 Cookie 文件失败: %s", str(exc))
         
         # 抖音配置
         self.douyin_max_media = max(

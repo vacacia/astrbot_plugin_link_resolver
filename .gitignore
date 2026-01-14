@@ -19,3 +19,4 @@ cookies/
 *.mp4
 *.jpg
 *.png
+!docs/images/*.png

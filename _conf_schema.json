@@ -55,6 +55,12 @@
         "min": 1,
         "max": 20
     },
+    "bili_cookies": {
+        "description": "B站Cookies",
+        "type": "string",
+        "hint": "粘贴导出的 Cookie 字符串（可选）。填写后可下载更高画质。留空则使用游客模式。",
+        "default": ""
+    },
     "douyin_max_media": {
         "description": "抖音最多发送媒体数",
         "type": "int",
