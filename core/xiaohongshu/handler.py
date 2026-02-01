@@ -140,98 +140,138 @@ class XiaohongshuMixin:
             original_start = time_module.perf_counter()
             
             # 构建原图 URL 候选列表
-            # 策略：优先直接 CDN 链接（无压缩原图），再尝试 imageView2 格式转换
+            # 策略：优先 imageView2/format/png 获取无损 PNG 原图（XHS-Downloader 默认模式）
+            #       PNG 失败后再尝试直接 CDN（auto 模式，可能返回压缩的 JPEG/WebP）
             original_candidates = []
             
-            # 1. 直接 CDN 链接 - 获取未压缩的原始文件（XHS-Downloader 的 auto 模式）
+            # 1. imageView2 格式转换 - PNG 优先（XHS-Downloader 默认使用 png 格式）
+            #    ci.xiaohongshu.com 会将图片转换为指定格式，PNG 通常是无损的最大尺寸
+            original_candidates.append({
+                "url": f"https://ci.xiaohongshu.com/{token}?imageView2/format/png",
+                "desc": "CI-PNG-原图",
+                "format": "png",
+            })
+            
+            # 2. 直接 CDN 链接 - auto 模式（可能返回压缩的 JPEG/WebP）
             cdn_domains = [
-                "sns-img-bd.xhscdn.com",  # XHS-Downloader 默认使用
+                "sns-img-bd.xhscdn.com",  # XHS-Downloader 的 auto 模式使用
                 "sns-img-qc.xhscdn.com",
                 "sns-img-hw.xhscdn.com",
             ]
             for domain in cdn_domains:
                 original_candidates.append({
                     "url": f"https://{domain}/{token}",
-                    "desc": f"CDN-{domain.split('-')[2].split('.')[0]}-原始",
-                    "format": None,  # 保持原始格式
+                    "desc": f"CDN-{domain.split('-')[2].split('.')[0]}-auto",
+                    "format": None,  # 保持原始格式（可能是压缩格式）
                 })
             
-            # 2. imageView2 格式转换 - 作为备选（可能会压缩，但保证格式）
-            for format_name in ["png", "jpeg"]:
-                original_candidates.append({
-                    "url": f"https://ci.xiaohongshu.com/{token}?imageView2/format/{format_name}",
-                    "desc": f"CI-{format_name.upper()}",
-                    "format": format_name,
-                })
+            # 3. 其他格式作为最后备选
+            original_candidates.append({
+                "url": f"https://ci.xiaohongshu.com/{token}?imageView2/format/jpeg",
+                "desc": "CI-JPEG",
+                "format": "jpeg",
+            })
             
+            retry_count = max(0, int(getattr(self, "retry_count", 3)))
             for cand in original_candidates:
                 cand_url = cand["url"]
                 desc = cand["desc"]
                 format_name = cand["format"]
-                attempt_start = time_module.perf_counter()
                 
-                try:
-                    # 使用非常长的超时时间（用户说带宽小）
-                    timeout = aiohttp.ClientTimeout(total=600, connect=60)
-                    headers = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Referer": "https://www.xiaohongshu.com/",
-                    }
-                    
-                    async with aiohttp.ClientSession(
-                        headers=headers,
-                        cookies=cookies if cookies else None,
-                        timeout=timeout
-                    ) as session:
-                        async with session.get(cand_url) as resp:
-                            attempt_elapsed = time_module.perf_counter() - attempt_start
-                            
-                            if resp.status == 200:
-                                content = await resp.read()
-                                content_len = len(content)
+                for attempt in range(retry_count + 1):
+                    attempt_start = time_module.perf_counter()
+                    try:
+                        timeout = aiohttp.ClientTimeout(total=600, connect=60)
+                        headers = {
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            "Referer": "https://www.xiaohongshu.com/",
+                        }
+                        
+                        async with aiohttp.ClientSession(
+                            headers=headers,
+                            cookies=cookies if cookies else None,
+                            timeout=timeout
+                        ) as session:
+                            async with session.get(cand_url) as resp:
+                                attempt_elapsed = time_module.perf_counter() - attempt_start
                                 
-                                # 验证文件大小（至少 10KB 才认为是有效图片）
-                                if content_len >= 10 * 1024:
-                                    # 确定输出文件后缀
-                                    if format_name:
-                                        actual_suffix = f".{format_name}"
-                                    else:
-                                        # 从响应头或文件签名推断格式
-                                        actual_suffix = self._detect_image_suffix(content, resp.headers.get("Content-Type"))
-                                    
-                                    final_output = output_path.with_suffix(actual_suffix)
-                                    temp_path = final_output.with_suffix(final_output.suffix + ".part")
-                                    def _save():
-                                        with open(temp_path, "wb") as f:
-                                            f.write(content)
-                                        if temp_path.exists():
-                                            temp_path.replace(final_output)
-                                    await asyncio.to_thread(_save)
-                                    
-                                    total_elapsed = time_module.perf_counter() - start_time
-                                    logger.debug(
-                                        "XHS 原图下载成功 (%s): size=%.1fMB, 请求耗时=%.2fs, 总耗时=%.2fs",
-                                        desc, content_len / 1024 / 1024, attempt_elapsed, total_elapsed
-                                    )
-                                    return final_output
+                                if resp.status == 200:
+                                    # 先写入临时文件，避免一次性读取导致 payload 不完整
+                                    temp_output = output_path.with_suffix(".tmp")
+                                    temp_path = temp_output.with_suffix(temp_output.suffix + ".part")
+                                    content_len = 0
+                                    f = None
+                                    try:
+                                        def _open_temp():
+                                            temp_path.parent.mkdir(parents=True, exist_ok=True)
+                                            return open(temp_path, "wb")
+
+                                        f = await asyncio.to_thread(_open_temp)
+                                        try:
+                                            async for chunk in resp.content.iter_chunked(256 * 1024):
+                                                if not chunk:
+                                                    continue
+                                                content_len += len(chunk)
+                                                await asyncio.to_thread(f.write, chunk)
+                                        finally:
+                                            if f is not None:
+                                                await asyncio.to_thread(f.close)
+
+                                        # 验证文件大小（至少 10KB 才认为是有效图片）
+                                        if content_len >= 10 * 1024 and temp_path.exists():
+                                            # 确定输出文件后缀
+                                            if format_name:
+                                                actual_suffix = f".{format_name}"
+                                            else:
+                                                def _read_head():
+                                                    with open(temp_path, "rb") as rf:
+                                                        return rf.read(32)
+                                                head = await asyncio.to_thread(_read_head)
+                                                actual_suffix = self._detect_image_suffix(head, resp.headers.get("Content-Type"))
+                                            
+                                            final_output = output_path.with_suffix(actual_suffix)
+                                            final_part = final_output.with_suffix(final_output.suffix + ".part")
+                                            def _move():
+                                                if final_part.exists():
+                                                    final_part.unlink()
+                                                temp_path.replace(final_part)
+                                                final_part.replace(final_output)
+                                            await asyncio.to_thread(_move)
+                                            
+                                            total_elapsed = time_module.perf_counter() - start_time
+                                            logger.debug(
+                                                "XHS 原图下载成功 (%s): size=%.1fMB, 请求耗时=%.2fs, 总耗时=%.2fs",
+                                                desc, content_len / 1024 / 1024, attempt_elapsed, total_elapsed
+                                            )
+                                            return final_output
+                                        else:
+                                            logger.debug(
+                                                "XHS 原图响应过小 (%s): size=%d bytes, 耗时=%.2fs",
+                                                desc, content_len, attempt_elapsed
+                                            )
+                                    finally:
+                                        if temp_path.exists() and content_len < 10 * 1024:
+                                            try:
+                                                temp_path.unlink()
+                                            except Exception:
+                                                pass
                                 else:
                                     logger.debug(
-                                        "XHS 原图响应过小 (%s): size=%d bytes, 耗时=%.2fs",
-                                        desc, content_len, attempt_elapsed
+                                        "XHS 原图请求失败 (%s): HTTP %d, 耗时=%.2fs",
+                                        desc, resp.status, attempt_elapsed
                                     )
-                            else:
-                                logger.debug(
-                                    "XHS 原图请求失败 (%s): HTTP %d, 耗时=%.2fs",
-                                    desc, resp.status, attempt_elapsed
-                                )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    attempt_elapsed = time_module.perf_counter() - attempt_start
-                    logger.debug(
-                        "XHS 原图下载异常 (%s): %s, 耗时=%.2fs",
-                        desc, str(e)[:50], attempt_elapsed
-                    )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        attempt_elapsed = time_module.perf_counter() - attempt_start
+                        logger.debug(
+                            "XHS 原图下载异常 (%s): %s, 耗时=%.2fs",
+                            desc, str(e)[:50], attempt_elapsed
+                        )
+
+                    if attempt < retry_count:
+                        wait_time = 0.5 * (2 ** attempt)
+                        await asyncio.sleep(wait_time)
             
             original_elapsed = time_module.perf_counter() - original_start
             logger.debug("XHS 原图下载全部失败，回退到普通策略，原图尝试耗时=%.2fs", original_elapsed)
@@ -268,11 +308,11 @@ class XiaohongshuMixin:
                     candidates.append({"url": f"https://{domain}/{path}", "use_cookies": False, "desc": f"CDN-{domain.split('.')[0]}"})
         
         errors = []
+        retry_count = max(0, int(getattr(self, "retry_count", 3)))
         for cand in candidates:
             cand_url = cand["url"]
             use_cookies_flag = cand["use_cookies"]
             desc = cand["desc"]
-            attempt_start = time_module.perf_counter()
             
             # 两种 header 变体
             header_variants = [
@@ -281,40 +321,45 @@ class XiaohongshuMixin:
             ]
             
             for hv in header_variants:
-                try:
-                    # 超长超时
-                    timeout = aiohttp.ClientTimeout(total=300, connect=30)
-                    async with aiohttp.ClientSession(
-                        headers=hv, 
-                        cookies=cookies if use_cookies_flag else None,
-                        timeout=timeout
-                    ) as session:
-                        async with session.get(cand_url) as resp:
-                            if resp.status == 200:
-                                content = await resp.read()
-                                if len(content) >= 1024:
-                                    temp_path = output_path.with_suffix(output_path.suffix + ".part")
-                                    def _save_fallback():
-                                        with open(temp_path, "wb") as f:
-                                            f.write(content)
-                                        if temp_path.exists():
-                                            temp_path.replace(output_path)
-                                    await asyncio.to_thread(_save_fallback)
-                                    
-                                    attempt_elapsed = time_module.perf_counter() - attempt_start
-                                    total_elapsed = time_module.perf_counter() - start_time
-                                    logger.info(
-                                        "XHS CDN 图片下载成功 (%s): size=%.1fKB, 请求耗时=%.2fs, 总耗时=%.2fs",
-                                        desc, len(content) / 1024, attempt_elapsed, total_elapsed
-                                    )
-                                    return output_path
-                            
-                            errors.append(f"{desc}: HTTP {resp.status}")
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    errors.append(f"{desc}: {str(e)[:20]}")
-                    continue
+                for attempt in range(retry_count + 1):
+                    attempt_start = time_module.perf_counter()
+                    try:
+                        # 超长超时
+                        timeout = aiohttp.ClientTimeout(total=300, connect=30)
+                        async with aiohttp.ClientSession(
+                            headers=hv, 
+                            cookies=cookies if use_cookies_flag else None,
+                            timeout=timeout
+                        ) as session:
+                            async with session.get(cand_url) as resp:
+                                if resp.status == 200:
+                                    content = await resp.read()
+                                    if len(content) >= 1024:
+                                        temp_path = output_path.with_suffix(output_path.suffix + ".part")
+                                        def _save_fallback():
+                                            with open(temp_path, "wb") as f:
+                                                f.write(content)
+                                            if temp_path.exists():
+                                                temp_path.replace(output_path)
+                                        await asyncio.to_thread(_save_fallback)
+                                        
+                                        attempt_elapsed = time_module.perf_counter() - attempt_start
+                                        total_elapsed = time_module.perf_counter() - start_time
+                                        logger.info(
+                                            "XHS CDN 图片下载成功 (%s): size=%.1fKB, 请求耗时=%.2fs, 总耗时=%.2fs",
+                                            desc, len(content) / 1024, attempt_elapsed, total_elapsed
+                                        )
+                                        return output_path
+                                
+                                errors.append(f"{desc}: HTTP {resp.status}")
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        errors.append(f"{desc}: {str(e)[:20]}")
+
+                    if attempt < retry_count:
+                        wait_time = 0.5 * (2 ** attempt)
+                        await asyncio.sleep(wait_time)
         # endregion
         
         # 全部失败

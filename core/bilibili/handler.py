@@ -278,13 +278,16 @@ class BilibiliMixin:
             async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
                 try:
                     response = await client.head(short_url)
-                except Exception:
+                except Exception as e:
+                    logger.debug("短链接 HEAD 请求失败: %s，尝试 GET 请求: %s", short_url, str(e))
                     response = await client.get(short_url)
             final_url = str(response.url)
-            logger.info("🔗 短链接重定向: %s -> %s", short_url, final_url)
+            logger.info("🔗 短链接重定向: %s -> %s", short_url[:80], final_url[:80])
             return final_url
+        except asyncio.TimeoutError:
+            logger.error("❌ 解析短链接超时: %s", short_url[:80])
         except Exception as exc:
-            logger.error("❌ 解析短链接失败: %s", str(exc))
+            logger.error("❌ 解析短链接失败: %s, 错误: %s", short_url[:80], str(exc))
         return None
 
     async def _resolve_video_ref_from_text(self, text: str) -> VideoRef | None:
@@ -296,6 +299,12 @@ class BilibiliMixin:
                 final_url = await self.resolve_short_url(token)
                 if final_url:
                     if ref := self._parse_video_ref_from_text(final_url, source_url=token):
+                        return ref
+                else:
+                    # 短链接解析失败，但短链接本身可能包含 bvid/avid（虽然 b23.tv 短码不含）
+                    # 尝试从原始 token 解析，以防万一
+                    logger.debug("短链接解析失败，尝试从原始链接解析: %s", token[:80])
+                    if ref := self._parse_video_ref_from_text(token, source_url=token):
                         return ref
                 continue
             if ref := self._parse_video_ref_from_text(token):
@@ -871,10 +880,7 @@ class BilibiliMixin:
                     except asyncio.CancelledError:
                         raise
                     except SizeLimitExceeded:
-                        warn_text = (
-                            f"❌ 分P {idx + 1} 超过大小限制 ({self.max_video_size_mb}MB)，跳过下载"
-                        )
-                        nodes.nodes.append(Node(uin=self_id, name="BiliBot", content=[Plain(warn_text)]))
+                        nodes.nodes.append(Node(uin=self_id, name="BiliBot", content=[Plain("我没流量了, 看不了那么大的视频")]))
                     except Exception as exc:
                         logger.error("❌ 视频下载失败%s: %s", source_tag, str(exc))
                         error_text = f"❌ 分P {idx + 1} 下载失败: {str(exc)}"
@@ -930,22 +936,11 @@ class BilibiliMixin:
             except asyncio.CancelledError:
                 raise
             except SizeLimitExceeded:
-                video_info_text = (
-                    f"🎬 标题: {title}\n"
-                    f"👤 UP主: {up_name}\n"
-                    f"🔢 播放量: {view_count}\n"
-                    f"❤️ 点赞: {likes}\n"
-                    f"🏆 投币: {coins}\n"
-                    f"🔄 分享: {shares}\n"
-                    f"💬 评论: {comments}\n\n"
-                    f"❌ 视频大小超过限制 ({self.max_video_size_mb}MB)，无法下载\n"
-                    f"💡 当前画质设置: {self.quality_label}"
-                )
-                await event.send(MessageChain([Plain(video_info_text)]))
+                event.set_result(event.plain_result("我没流量了, 看不了那么大的视频"))
                 return
             except Exception as exc:
                 logger.error("❌ 视频下载失败%s: %s", source_tag, str(exc))
-                await event.send(MessageChain([Plain(f"❌ 视频下载失败: {str(exc)}")]))
+                event.set_result(event.plain_result(f"❌ 视频下载失败: {str(exc)}"))
                 return
 
             timing["download"] = time_module.perf_counter() - download_start
@@ -1025,7 +1020,7 @@ class BilibiliMixin:
                 raise
             except Exception as exc:
                 logger.error("❌ 视频发送失败%s: %s", source_tag, str(exc))
-                await event.send(MessageChain([Plain(f"❌ 视频发送失败: {str(exc)}")]))
+                event.set_result(event.plain_result(f"❌ 视频发送失败: {str(exc)}"))
                 if video_paths or thumbnail_paths:
                     await self.cleanup_files(video_paths, thumbnail_paths)
         except asyncio.CancelledError:

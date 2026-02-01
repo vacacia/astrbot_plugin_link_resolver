@@ -1,5 +1,5 @@
 httpx
-bilibili-api
+bilibili-api-python>=17.4.0,<18.0.0
 msgspec
 Pillow
 aiohttp
