@@ -823,6 +823,35 @@ class BilibiliMixin:
             if is_multi_page:
                 page_indexes = list(range(min(self.multi_page_max, page_count)))
 
+            max_duration_seconds = getattr(self, "bili_max_duration_seconds", 0)
+            if max_duration_seconds and max_duration_seconds > 0:
+                duration_to_check = duration_seconds
+                if pages:
+                    if is_multi_page:
+                        duration_to_check = 0
+                        for idx in page_indexes:
+                            page_info = pages[idx] if idx < len(pages) else {}
+                            page_duration = page_info.get("duration")
+                            if isinstance(page_duration, (int, float)) and page_duration > 0:
+                                duration_to_check += int(page_duration)
+                        if duration_to_check <= 0:
+                            duration_to_check = duration_seconds
+                    else:
+                        if 0 <= page_index < len(pages):
+                            page_duration = pages[page_index].get("duration")
+                            if isinstance(page_duration, (int, float)) and page_duration > 0:
+                                duration_to_check = int(page_duration)
+                if duration_to_check and duration_to_check > max_duration_seconds:
+                    logger.info(
+                        "⏱️ B站视频时长超限%s: %ds > %ds, 标题=%s",
+                        source_tag,
+                        duration_to_check,
+                        max_duration_seconds,
+                        title[:30],
+                    )
+                    event.set_result(event.plain_result("视频太长了你自己看去"))
+                    return
+
             video_paths: list[Path] = []
             thumbnail_paths: list[Path] = []
 

@@ -32,7 +32,7 @@ ACTIVE_PARSE_TASKS: set[asyncio.Task] = set()
 # endregion
 
 # region MyParser 类
-@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.1")
+@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.4")
 class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | dict | None = None):
         super().__init__(context)
@@ -65,6 +65,9 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.bili_merge_send = bool(self._get_config_value("bili_merge_send", False))
         self.enable_multi_page = bool(self._get_config_value("bili_enable_multi_page", True))
         self.multi_page_max = max(1, int(self._get_config_value("bili_multi_page_max", 3)))
+        self.bili_max_duration_seconds = max(
+            0, int(self._get_config_value("bili_max_duration_seconds", 300))
+        )
         self.allow_quality_fallback = bool(self._get_config_value("bili_allow_quality_fallback", True))
         # 从配置读取 Cookie 并写入文件
         bili_cookies_str = str(self._get_config_value("bili_cookies", "")).strip()
@@ -116,11 +119,17 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
 
         # 构建启用平台列表
         enabled_list = [p for p in ["B站", "抖音", "小红书"] if p in enable_platforms]
+        duration_label = (
+            f"{self.bili_max_duration_seconds}s"
+            if self.bili_max_duration_seconds > 0
+            else "无限制"
+        )
         logger.info(
-            "📹 LinkResolver 配置: 平台=%s, B站(画质=%s,合并=%s), 抖音(合并=%s), 小红书(原图=%s), 重试=%d, API超时=%ds",
+            "📹 LinkResolver 配置: 平台=%s, B站(画质=%s,合并=%s,时长<=%s), 抖音(合并=%s), 小红书(原图=%s), 重试=%d, API超时=%ds",
             "/".join(enabled_list) if enabled_list else "无",
             self.video_quality.name,
             "开" if self.bili_merge_send else "关",
+            duration_label,
             "开" if self.douyin_merge_send else "关",
             "开" if self.xhs_download_original else "关",
             self.retry_count,

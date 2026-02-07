@@ -55,6 +55,14 @@
         "min": 1,
         "max": 20
     },
+    "bili_max_duration_seconds": {
+        "description": "B站最大视频时长(秒)",
+        "type": "int",
+        "hint": "视频时长超过该值时直接提示并忽略后续解析。设为 0 表示不限制。",
+        "default": 300,
+        "min": 0,
+        "max": 86400
+    },
     "bili_cookies": {
         "description": "B站Cookies",
         "type": "string",

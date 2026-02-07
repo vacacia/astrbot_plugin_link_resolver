@@ -39,6 +39,7 @@
 | `bili_merge_send` | 合并转发发送 (不开启则只发视频) | ❌ 关闭 |
 | `bili_enable_multi_page` | 启用多P视频下载 | ✅ 开启 |
 | `bili_multi_page_max` | 多P最多下载数量 | 3 |
+| `bili_max_duration_seconds` | 最大视频时长(秒)，超过即忽略 | 300 |
 
 ### 抖音设置
 
