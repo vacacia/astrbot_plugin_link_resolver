@@ -1,5 +1,6 @@
 """小红书内容提取器 - 基于 astrbot_plugin_parser 参考实现重写"""
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from ..common import get_xhs_cookies_file
 
 
 # region 常量
+XHS_REQUEST_TIMEOUT_SEC = 30.0
 XHS_SHORT_LINK_PATTERN = r"(?:https?://)?(?:www\.)?xhslink\.com/[A-Za-z0-9._?%&+=/#@-]+"
 XHS_MESSAGE_PATTERN = (
     r"(?s).*(?:"
@@ -101,6 +103,12 @@ class XiaohongshuResult:
 
 class XiaohongshuParseError(RuntimeError):
     pass
+
+
+class XiaohongshuRetryableError(XiaohongshuParseError):
+    """可重试的解析错误（网络抖动、临时服务异常等）"""
+
+    pass
 # endregion
 
 
@@ -138,7 +146,11 @@ def load_xhs_cookies() -> dict[str, str]:
 class XiaohongshuExtractor:
     """小红书内容提取器"""
 
-    def __init__(self, timeout: float = 15.0, cookies: dict[str, str] | None = None):
+    def __init__(
+        self,
+        timeout: float = XHS_REQUEST_TIMEOUT_SEC,
+        cookies: dict[str, str] | None = None,
+    ):
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.cookies = cookies or load_xhs_cookies()
 
@@ -181,21 +193,39 @@ class XiaohongshuExtractor:
 
     async def _get_redirect_url(self, url: str) -> str:
         """获取短链接重定向目标（单次重定向）"""
-        async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
-            async with session.get(url, headers=XHS_HEADERS, allow_redirects=False) as resp:
-                if resp.status >= 400:
-                    raise XiaohongshuParseError(f"短链接请求失败: {resp.status}")
-                location = resp.headers.get("Location", url)
-                return location
+        try:
+            async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
+                async with session.get(url, headers=XHS_HEADERS, allow_redirects=False) as resp:
+                    if resp.status in (429,) or resp.status >= 500:
+                        raise XiaohongshuRetryableError(f"短链接请求临时失败: {resp.status}")
+                    if resp.status >= 400:
+                        raise XiaohongshuParseError(f"短链接请求失败: {resp.status}")
+                    location = resp.headers.get("Location", url)
+                    return location
+        except asyncio.TimeoutError as e:
+            timeout_sec = getattr(self.timeout, "total", None)
+            timeout_label = f"{timeout_sec:.0f}s" if isinstance(timeout_sec, (int, float)) else "unknown"
+            raise XiaohongshuRetryableError(f"短链接跳转超时 ({timeout_label})") from e
+        except aiohttp.ClientError as e:
+            raise XiaohongshuRetryableError(f"短链接请求网络异常: {e}") from e
 
     async def _parse_explore(self, url: str, note_id: str) -> XiaohongshuResult:
         """解析 explore 页面"""
-        async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
-            async with session.get(url, headers=_EXPLORE_HEADERS) as resp:
-                logger.debug("XHS explore url: %s, status: %s", resp.url, resp.status)
-                if resp.status != 200:
-                    raise XiaohongshuParseError(f"页面请求失败: {resp.status}")
-                html = await resp.text()
+        try:
+            async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
+                async with session.get(url, headers=_EXPLORE_HEADERS) as resp:
+                    logger.debug("XHS explore url: %s, status: %s", resp.url, resp.status)
+                    if resp.status in (429,) or resp.status >= 500:
+                        raise XiaohongshuRetryableError(f"explore 页面临时失败: {resp.status}")
+                    if resp.status != 200:
+                        raise XiaohongshuParseError(f"页面请求失败: {resp.status}")
+                    html = await resp.text()
+        except asyncio.TimeoutError as e:
+            timeout_sec = getattr(self.timeout, "total", None)
+            timeout_label = f"{timeout_sec:.0f}s" if isinstance(timeout_sec, (int, float)) else "unknown"
+            raise XiaohongshuRetryableError(f"explore 页面请求超时 ({timeout_label})") from e
+        except aiohttp.ClientError as e:
+            raise XiaohongshuRetryableError(f"explore 页面网络异常: {e}") from e
 
         json_obj = self._extract_initial_state(html)
 
@@ -213,12 +243,21 @@ class XiaohongshuExtractor:
 
     async def _parse_discovery(self, url: str) -> XiaohongshuResult:
         """解析 discovery 页面"""
-        async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
-            async with session.get(url, headers=XHS_HEADERS, allow_redirects=True) as resp:
-                logger.debug("XHS discovery url: %s, status: %s", resp.url, resp.status)
-                if resp.status != 200:
-                    raise XiaohongshuParseError(f"页面请求失败: {resp.status}")
-                html = await resp.text()
+        try:
+            async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
+                async with session.get(url, headers=XHS_HEADERS, allow_redirects=True) as resp:
+                    logger.debug("XHS discovery url: %s, status: %s", resp.url, resp.status)
+                    if resp.status in (429,) or resp.status >= 500:
+                        raise XiaohongshuRetryableError(f"discovery 页面临时失败: {resp.status}")
+                    if resp.status != 200:
+                        raise XiaohongshuParseError(f"页面请求失败: {resp.status}")
+                    html = await resp.text()
+        except asyncio.TimeoutError as e:
+            timeout_sec = getattr(self.timeout, "total", None)
+            timeout_label = f"{timeout_sec:.0f}s" if isinstance(timeout_sec, (int, float)) else "unknown"
+            raise XiaohongshuRetryableError(f"discovery 页面请求超时 ({timeout_label})") from e
+        except aiohttp.ClientError as e:
+            raise XiaohongshuRetryableError(f"discovery 页面网络异常: {e}") from e
 
         json_obj = self._extract_initial_state(html)
 
@@ -415,9 +454,11 @@ class XiaohongshuExtractor:
 __all__ = [
     "XHS_HEADERS",
     "XHS_MESSAGE_PATTERN",
+    "XHS_REQUEST_TIMEOUT_SEC",
     "XHS_SHORT_LINK_PATTERN",
     "XiaohongshuExtractor",
     "XiaohongshuParseError",
+    "XiaohongshuRetryableError",
     "XiaohongshuResult",
     "extract_xhs_links",
     "load_xhs_cookies",

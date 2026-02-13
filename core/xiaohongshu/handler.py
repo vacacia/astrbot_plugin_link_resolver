@@ -19,10 +19,17 @@ from . import (
     XHS_HEADERS,
     XHS_MESSAGE_PATTERN,
     XiaohongshuParseError,
+    XiaohongshuRetryableError,
     XiaohongshuResult,
     extract_xhs_links,
     load_xhs_cookies,
 )
+# endregion
+
+# region 解析策略常量
+XHS_PARSE_TIMEOUT_SEC = 30.0
+XHS_PARSE_RETRY_BASE_DELAY_SEC = 1.0
+XHS_PARSE_RETRY_MAX_DELAY_SEC = 8.0
 # endregion
 
 
@@ -89,6 +96,27 @@ class XiaohongshuMixin:
                 logger.debug("aiocqhttp API 超时已从 %.0fs 延长到 %.0fs", current_timeout, timeout_sec)
         except Exception as e:
             logger.debug("无法修改 aiocqhttp 超时: %s", str(e))
+
+    @staticmethod
+    def _is_retryable_xhs_exception(exc: Exception) -> bool:
+        if isinstance(exc, (asyncio.TimeoutError, XiaohongshuRetryableError)):
+            return True
+        text = str(exc).lower()
+        retryable_patterns = (
+            "timeout",
+            "timed out",
+            "connection",
+            "reset",
+            "refused",
+            "temporary",
+            "unavailable",
+            "503",
+            "502",
+            "504",
+            "429",
+            "network",
+        )
+        return any(p in text for p in retryable_patterns)
 
     async def _download_xhs_video(self, url: str, referer: str | None = None) -> Path:
         max_bytes = self.max_video_size_mb * 1024 * 1024 if self.max_video_size_mb > 0 else None
@@ -475,24 +503,70 @@ class XiaohongshuMixin:
 
         # region 解析阶段
         parse_start = time_module.perf_counter()
-        try:
-            result: XiaohongshuResult = await asyncio.wait_for(
-                self.xhs_extractor.parse(target_link),
-                timeout=30.0,  # 增加超时时间
+        retry_count = max(0, int(getattr(self, "retry_count", 3)))
+        result: XiaohongshuResult | None = None
+        last_error: Exception | None = None
+
+        for attempt in range(retry_count + 1):
+            try:
+                result = await asyncio.wait_for(
+                    self.xhs_extractor.parse(target_link),
+                    timeout=XHS_PARSE_TIMEOUT_SEC,
+                )
+                break
+            except asyncio.CancelledError:
+                logger.info("♻️ 小红书解析任务已中断%s", source_tag)
+                return
+            except XiaohongshuParseError as exc:
+                last_error = exc
+                if attempt < retry_count and self._is_retryable_xhs_exception(exc):
+                    wait_time = min(
+                        XHS_PARSE_RETRY_MAX_DELAY_SEC,
+                        XHS_PARSE_RETRY_BASE_DELAY_SEC * (2 ** attempt),
+                    )
+                    logger.warning(
+                        "⚠️ 小红书解析失败%s: %s，%.1fs后重试 (%d/%d)",
+                        source_tag,
+                        str(exc),
+                        wait_time,
+                        attempt + 1,
+                        retry_count,
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                logger.error("❌ 小红书解析失败%s: %s", source_tag, str(exc))
+                return
+            except Exception as exc:
+                last_error = exc
+                if attempt < retry_count and self._is_retryable_xhs_exception(exc):
+                    wait_time = min(
+                        XHS_PARSE_RETRY_MAX_DELAY_SEC,
+                        XHS_PARSE_RETRY_BASE_DELAY_SEC * (2 ** attempt),
+                    )
+                    logger.warning(
+                        "⚠️ 小红书解析异常%s: %s，%.1fs后重试 (%d/%d)",
+                        source_tag,
+                        str(exc),
+                        wait_time,
+                        attempt + 1,
+                        retry_count,
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                logger.error("❌ 小红书解析异常%s: %s", source_tag, str(exc))
+                return
+
+        if result is None:
+            logger.error(
+                "❌ 小红书解析最终失败%s: %s, link=%s, timeout=%.0fs, retries=%d",
+                source_tag,
+                str(last_error) if last_error else "unknown",
+                target_link,
+                XHS_PARSE_TIMEOUT_SEC,
+                retry_count,
             )
-        except asyncio.CancelledError:
-            logger.info("♻️ 小红书解析任务已中断%s", source_tag)
             return
-        except asyncio.TimeoutError:
-            logger.error("❌ 小红书解析超时%s", source_tag)
-            # 不向用户发送错误信息
-            return
-        except XiaohongshuParseError as exc:
-            logger.error("❌ 小红书解析失败%s: %s", source_tag, str(exc))
-            return
-        except Exception as exc:
-            logger.error("❌ 小红书解析异常%s: %s", source_tag, str(exc))
-            return
+
         timing["parse"] = time_module.perf_counter() - parse_start
         # endregion
 
