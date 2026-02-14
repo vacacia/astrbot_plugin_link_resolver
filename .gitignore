@@ -20,3 +20,5 @@ cookies/
 *.jpg
 *.png
 !docs/images/*.png
+
+tests

@@ -602,9 +602,13 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         # Direct Send Pattern: 调用此方法时，文件已通过 await event.send() 被读取完毕
         # 无需延迟，立即清理以避免与后续相同 URL 请求产生竞态条件
         for video_path in video_paths:
+            existed = video_path.exists()
             video_path.unlink(missing_ok=True)
+            logger.debug("🧹 清理视频文件: path=%s, existed=%s", video_path, existed)
         for thumb_path in thumbnail_paths:
+            existed = thumb_path.exists()
             thumb_path.unlink(missing_ok=True)
+            logger.debug("🧹 清理缩略图文件: path=%s, existed=%s", thumb_path, existed)
     # endregion
 
 

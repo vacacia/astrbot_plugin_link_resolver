@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 import shutil
+import uuid
 from dataclasses import dataclass
 from http import cookiejar
 from pathlib import Path
@@ -561,6 +562,7 @@ class BilibiliMixin:
         page_index: int,
         page_count: int,
         cookies: dict[str, str],
+        request_id: str,
     ) -> tuple[Path, str]:
         """下载视频。如果超过大小限制且开启了自动降画质，会尝试更低画质。"""
         current_quality = self.video_quality
@@ -607,14 +609,39 @@ class BilibiliMixin:
             break
 
         suffix = f"_p{page_index + 1}" if page_count > 1 else ""
-        output_path = get_bilibili_video_path() / f"{bvid}{suffix}.mp4"
+        output_path = get_bilibili_video_path() / f"{bvid}{suffix}_{request_id}.mp4"
+        logger.debug(
+            "🧩 B站下载路径: bvid=%s, page=%d/%d, request_id=%s, output=%s",
+            bvid,
+            page_index + 1,
+            page_count,
+            request_id,
+            output_path,
+        )
 
         if audio_url:
             temp_video = output_path.with_suffix(".video")
             temp_audio = output_path.with_suffix(".audio")
-            await self._download_stream(video_url, temp_video, cookies, max_bytes)
-            await self._download_stream(audio_url, temp_audio, cookies, max_bytes)
-            await self._merge_av(temp_video, temp_audio, output_path)
+            temp_video_part = temp_video.with_suffix(temp_video.suffix + ".part")
+            temp_audio_part = temp_audio.with_suffix(temp_audio.suffix + ".part")
+            try:
+                await self._download_stream(video_url, temp_video, cookies, max_bytes)
+                await self._download_stream(audio_url, temp_audio, cookies, max_bytes)
+                await self._merge_av(temp_video, temp_audio, output_path)
+            except asyncio.CancelledError:
+                await self._cleanup_download_artifacts(
+                    bvid,
+                    request_id,
+                    [output_path, temp_video, temp_audio, temp_video_part, temp_audio_part],
+                )
+                raise
+            except Exception:
+                await self._cleanup_download_artifacts(
+                    bvid,
+                    request_id,
+                    [output_path, temp_video, temp_audio, temp_video_part, temp_audio_part],
+                )
+                raise
         else:
             await self._download_stream(video_url, output_path, cookies, max_bytes)
 
@@ -678,6 +705,54 @@ class BilibiliMixin:
             "curl:", "network", "temporary", "unavailable", "503", "502"
         ]
         return any(pattern in error_str for pattern in retryable_patterns)
+
+    @staticmethod
+    def _assert_video_file_ready(
+        video_path: Path,
+        source_tag: str,
+        request_id: str,
+    ) -> int:
+        if not video_path.exists():
+            raise FileNotFoundError(f"视频文件不存在: {video_path}")
+        if not video_path.is_file():
+            raise RuntimeError(f"视频路径不是文件: {video_path}")
+        size_bytes = video_path.stat().st_size
+        if size_bytes <= 0:
+            raise RuntimeError(f"视频文件大小为0: {video_path}")
+        logger.debug(
+            "📦 视频文件校验通过%s: request_id=%s, path=%s, size=%.2fMB",
+            source_tag,
+            request_id,
+            video_path,
+            size_bytes / 1024 / 1024,
+        )
+        return size_bytes
+
+    async def _cleanup_download_artifacts(
+        self,
+        bvid: str,
+        request_id: str,
+        paths: list[Path],
+    ) -> None:
+        for path in paths:
+            try:
+                existed = path.exists()
+                await asyncio.to_thread(path.unlink, missing_ok=True)
+                if existed:
+                    logger.debug(
+                        "🧹 清理B站下载临时文件: bvid=%s, request_id=%s, path=%s",
+                        bvid,
+                        request_id,
+                        path,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "⚠️ 清理B站下载临时文件失败: bvid=%s, request_id=%s, path=%s, err=%s",
+                    bvid,
+                    request_id,
+                    path,
+                    str(exc),
+                )
 
     async def _download_bili_cover(self, cover_url: str, bvid: str) -> Path | None:
         """下载封面图到缓存目录"""
@@ -756,6 +831,13 @@ class BilibiliMixin:
             return
 
         source_tag = "(来自卡片)" if is_from_card else ""
+        request_id = uuid.uuid4().hex[:8]
+        logger.debug(
+            "🧩 B站处理任务%s: request_id=%s, source=%s",
+            source_tag,
+            request_id,
+            ref.source_url or ref.bvid or ref.avid,
+        )
         await self._send_reaction_emoji(event, source_tag)
 
         cookies = self._load_cookies()
@@ -886,13 +968,15 @@ class BilibiliMixin:
                             idx,
                             page_count,
                             cookies,
+                            request_id,
                         )
+                        size_bytes = self._assert_video_file_ready(video_path, source_tag, request_id)
                         video_paths.append(video_path)
                         page_elapsed = time_module.perf_counter() - page_start
                         logger.debug(
                             "� B站分P下载成功%s [%d/%d]: size=%.2fMB, 画质=%s, 耗时=%.2fs",
                             source_tag, idx + 1, len(page_indexes),
-                            video_path.stat().st_size / 1024 / 1024,
+                            size_bytes / 1024 / 1024,
                             actual_quality,
                             page_elapsed
                         )
@@ -919,6 +1003,8 @@ class BilibiliMixin:
                 
                 # region 发送阶段
                 send_start = time_module.perf_counter()
+                for path in video_paths:
+                    self._assert_video_file_ready(path, source_tag, request_id)
                 await event.send(MessageChain([nodes]))
                 timing["send"] = time_module.perf_counter() - send_start
                 # endregion
@@ -952,13 +1038,14 @@ class BilibiliMixin:
             # 单P视频处理
             try:
                 video_path, actual_quality = await self._download_video(
-                    video_obj, bvid, page_index, page_count, cookies
+                    video_obj, bvid, page_index, page_count, cookies, request_id
                 )
+                size_bytes = self._assert_video_file_ready(video_path, source_tag, request_id)
                 video_paths.append(video_path)
                 logger.debug(
                     "📥 B站视频下载成功%s: size=%.2fMB, 画质=%s, 耗时=%.2fs",
                     source_tag,
-                    video_path.stat().st_size / 1024 / 1024,
+                    size_bytes / 1024 / 1024,
                     actual_quality,
                     time_module.perf_counter() - download_start
                 )
@@ -995,6 +1082,7 @@ class BilibiliMixin:
             send_start = time_module.perf_counter()
             
             try:
+                self._assert_video_file_ready(video_path, source_tag, request_id)
                 abs_video_path = str(video_path.resolve())
                 video_component = Video.fromFileSystem(abs_video_path)
                 
