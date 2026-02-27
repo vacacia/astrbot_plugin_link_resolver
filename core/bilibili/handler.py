@@ -996,8 +996,11 @@ class BilibiliMixin:
                         nodes.nodes.append(Node(uin=sender_uin, content=[Plain("我没流量了, 看不了那么大的视频")]))
                     except Exception as exc:
                         logger.error("❌ 视频下载失败%s: %s", source_tag, str(exc))
-                        error_text = f"❌ 分P {idx + 1} 下载失败: {str(exc)}"
-                        nodes.nodes.append(Node(uin=sender_uin, content=[Plain(error_text)]))
+                        if self.error_notify_mode == "报错":
+                            error_text = f"❌ 分P {idx + 1} 下载失败: {str(exc)}"
+                            nodes.nodes.append(Node(uin=sender_uin, content=[Plain(error_text)]))
+                        elif self.error_notify_mode == "脱敏":
+                            nodes.nodes.append(Node(uin=sender_uin, content=[Plain(f"❌ 分P {idx + 1} 下载失败")]))
 
                 timing["download"] = time.perf_counter() - download_start
                 
@@ -1056,7 +1059,10 @@ class BilibiliMixin:
                 return
             except Exception as exc:
                 logger.error("❌ 视频下载失败%s: %s", source_tag, str(exc))
-                event.set_result(event.plain_result(f"❌ 视频下载失败: {str(exc)}"))
+                if self.error_notify_mode == "报错":
+                    event.set_result(event.plain_result(f"❌ 视频下载失败: {str(exc)}"))
+                elif self.error_notify_mode == "脱敏":
+                    event.set_result(event.plain_result("❌ 视频下载失败"))
                 return
 
             timing["download"] = time.perf_counter() - download_start
@@ -1137,7 +1143,10 @@ class BilibiliMixin:
                 raise
             except Exception as exc:
                 logger.error("❌ 视频发送失败%s: %s", source_tag, str(exc))
-                event.set_result(event.plain_result(f"❌ 视频发送失败: {str(exc)}"))
+                if self.error_notify_mode == "报错":
+                    event.set_result(event.plain_result(f"❌ 视频发送失败: {str(exc)}"))
+                elif self.error_notify_mode == "脱敏":
+                    event.set_result(event.plain_result("❌ 视频发送失败"))
                 if video_paths or thumbnail_paths:
                     await self.cleanup_files(video_paths, thumbnail_paths)
         except asyncio.CancelledError:

@@ -31,7 +31,7 @@ TASK_NAME_PREFIX = "myparser-parse"
 # endregion
 
 # region MyParser 类
-@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.6")
+@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.7")
 class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | dict | None = None):
         super().__init__(context)
@@ -108,6 +108,8 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.reaction_emoji_type = "1"  # 固定值，无需配置
         self.max_video_size_mb = int(self._get_config_value("max_video_size_mb", 200))
         self.merge_send_as_sender = bool(self._get_config_value("merge_send_as_sender", False))
+        _mode = str(self._get_config_value("error_notify_mode", "静默")).strip()
+        self.error_notify_mode = _mode if _mode in ("静默", "脱敏", "报错") else "静默"
 
         alias = self._normalize_quality_alias(self.quality_label)
         if alias == "HDR":
