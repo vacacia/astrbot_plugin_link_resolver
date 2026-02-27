@@ -25,7 +25,6 @@
 | `enable_platforms` | 勾选要启用解析的平台 | B站, 抖音, 小红书 |
 | `retry_count` | 解析失败重试次数（所有平台共用） | 3 |
 | `max_video_size_mb` | 最大视频大小限制 (MB)，超过则跳过下载或自动降画质 | 200 |
-| `api_timeout_sec` | 发送消息超时时间 (秒) | 600 |
 | `reaction_emoji_enabled` | 识别链接后是否发表情回应 | ✅ 开启 |
 | `reaction_emoji_id` | 回应的表情 ID (如 128169 👍) | 128169 |
 

@@ -77,28 +77,6 @@ class XiaohongshuMixin:
             self._xhs_cookies_cache = load_xhs_cookies()
         return self._xhs_cookies_cache
 
-    def _try_extend_aiocqhttp_timeout(self, event: AstrMessageEvent, timeout_sec: float) -> None:
-        """尝试延长 aiocqhttp API 超时时间（用于发送大图）
-        
-        路径: event.bot._api._wsr_api._timeout_sec
-        """
-        try:
-            bot = getattr(event, 'bot', None)
-            if not bot:
-                return
-            api = getattr(bot, '_api', None)
-            if not api:
-                return
-            wsr_api = getattr(api, '_wsr_api', None)
-            if not wsr_api:
-                return
-            current_timeout = getattr(wsr_api, '_timeout_sec', 180)
-            if current_timeout < timeout_sec:
-                wsr_api._timeout_sec = timeout_sec
-                logger.debug("aiocqhttp API 超时已从 %.0fs 延长到 %.0fs", current_timeout, timeout_sec)
-        except Exception as e:
-            logger.debug("无法修改 aiocqhttp 超时: %s", str(e))
-
     @staticmethod
     def _is_retryable_xhs_exception(exc: Exception) -> bool:
         if isinstance(exc, (asyncio.TimeoutError, XiaohongshuRetryableError)):
@@ -493,9 +471,6 @@ class XiaohongshuMixin:
             return
         source_tag = "(来自卡片)" if is_from_card else ""
         request_id = uuid.uuid4().hex[:8]
-        
-        # 尝试增加 aiocqhttp 超时时间（原图文件较大，需要更长时间上传）
-        self._try_extend_aiocqhttp_timeout(event, getattr(self, 'api_timeout_sec', 600))
 
         await self._send_reaction_emoji(event, source_tag)
 

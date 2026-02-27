@@ -123,12 +123,6 @@
         "min": 0,
         "max": 10
     },
-    "api_timeout_sec": {
-        "description": "发送消息超时(秒)",
-        "type": "int",
-        "hint": "aiocqhttp API 超时时间，发送大图需要较长时间。",
-        "default": 600
-    },
     "reaction_emoji_enabled": {
         "description": "识别后表情回应",
         "type": "bool",

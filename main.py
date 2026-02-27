@@ -101,7 +101,6 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         
         # 通用配置
         self.retry_count = max(0, int(self._get_config_value("retry_count", 3)))
-        self.api_timeout_sec = max(60, int(self._get_config_value("api_timeout_sec", 600)))
         self.reaction_emoji_enabled = bool(self._get_config_value("reaction_emoji_enabled", True))
         self.reaction_emoji_id = self._coerce_positive_int(self._get_config_value("reaction_emoji_id", 128169), 128169)
         self.reaction_emoji_type = "1"  # 固定值，无需配置
@@ -125,7 +124,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             else "无限制"
         )
         logger.info(
-            "📹 LinkResolver 配置: 平台=%s, B站(画质=%s,合并=%s,时长<=%s), 抖音(合并=%s), 小红书(原图=%s), 重试=%d, API超时=%ds",
+            "📹 LinkResolver 配置: 平台=%s, B站(画质=%s,合并=%s,时长<=%s), 抖音(合并=%s), 小红书(原图=%s), 重试=%d",
             "/".join(enabled_list) if enabled_list else "无",
             self.video_quality.name,
             "开" if self.bili_merge_send else "关",
@@ -133,7 +132,6 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             "开" if self.douyin_merge_send else "关",
             "开" if self.xhs_download_original else "关",
             self.retry_count,
-            self.api_timeout_sec,
         )
     # endregion
 
