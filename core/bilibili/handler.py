@@ -939,10 +939,10 @@ class BilibiliMixin:
 
             # region 下载阶段
             download_start = time_module.perf_counter()
-            
+
             if is_multi_page:
                 nodes = Nodes([])
-                self_id = str(event.get_self_id())
+                sender_uin = self._get_merge_sender_uin(event)
                 header_text = (
                     f"🎬 标题: {title}\n"
                     f"👤 UP主: {up_name}\n"
@@ -954,7 +954,7 @@ class BilibiliMixin:
                     f"💬 评论: {comments}\n"
                     f"🎚️ 画质设置: {self.quality_label}"
                 )
-                nodes.nodes.append(Node(uin=self_id, name="BiliBot", content=[Plain(header_text)]))
+                nodes.nodes.append(Node(uin=sender_uin, content=[Plain(header_text)]))
 
                 for idx in page_indexes:
                     page_info = pages[idx] if idx < len(pages) else {}
@@ -985,19 +985,19 @@ class BilibiliMixin:
                             f"⏱️ 时长: {page_duration // 60}:{page_duration % 60:02d}\n"
                             f"🎞️ 实际画质: {actual_quality}"
                         )
-                        nodes.nodes.append(Node(uin=self_id, name="BiliBot", content=[Plain(page_text)]))
+                        nodes.nodes.append(Node(uin=sender_uin, content=[Plain(page_text)]))
                         abs_video_path = str(video_path.resolve())
                         nodes.nodes.append(
-                            Node(uin=self_id, name="BiliBot", content=[Video.fromFileSystem(abs_video_path)])
+                            Node(uin=sender_uin, content=[Video.fromFileSystem(abs_video_path)])
                         )
                     except asyncio.CancelledError:
                         raise
                     except SizeLimitExceeded:
-                        nodes.nodes.append(Node(uin=self_id, name="BiliBot", content=[Plain("我没流量了, 看不了那么大的视频")]))
+                        nodes.nodes.append(Node(uin=sender_uin, content=[Plain("我没流量了, 看不了那么大的视频")]))
                     except Exception as exc:
                         logger.error("❌ 视频下载失败%s: %s", source_tag, str(exc))
                         error_text = f"❌ 分P {idx + 1} 下载失败: {str(exc)}"
-                        nodes.nodes.append(Node(uin=self_id, name="BiliBot", content=[Plain(error_text)]))
+                        nodes.nodes.append(Node(uin=sender_uin, content=[Plain(error_text)]))
 
                 timing["download"] = time_module.perf_counter() - download_start
                 
@@ -1088,16 +1088,16 @@ class BilibiliMixin:
                 
                 if self.bili_merge_send:
                     nodes = Nodes([])
-                    self_id = str(event.get_self_id())
-                    
+                    sender_uin = self._get_merge_sender_uin(event)
+
                     if card_path and card_path.exists():
                         card_component = Image.fromFileSystem(str(card_path.resolve()))
                         nodes.nodes.append(
-                            Node(uin=self_id, name="BiliBot", content=[card_component])
+                            Node(uin=sender_uin, content=[card_component])
                         )
 
                     nodes.nodes.append(
-                        Node(uin=self_id, name="BiliBot", content=[video_component])
+                        Node(uin=sender_uin, content=[video_component])
                     )
                     logger.debug("🚀 B站合并消息准备发送%s: 节点数=%d", source_tag, len(nodes.nodes))
                     await event.send(MessageChain([nodes]))

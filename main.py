@@ -107,6 +107,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.reaction_emoji_type = "1"  # 固定值，无需配置
         self.max_video_size_mb = int(self._get_config_value("max_video_size_mb", 200))
         self.cleanup_delay = int(self._get_config_value("auto_cleanup_delay", 60))
+        self.merge_send_as_sender = bool(self._get_config_value("merge_send_as_sender", False))
 
         alias = self._normalize_quality_alias(self.quality_label)
         if alias == "HDR":
@@ -609,6 +610,19 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             existed = thumb_path.exists()
             thumb_path.unlink(missing_ok=True)
             logger.debug("🧹 清理缩略图文件: path=%s, existed=%s", thumb_path, existed)
+    # endregion
+
+    # region 合并转发发送人获取
+    def _get_merge_sender_uin(self, event: AstrMessageEvent) -> str:
+        """获取合并转发使用的 uin
+
+        根据 merge_send_as_sender 配置决定使用发送者的 uin 还是 Bot 的 uin
+        """
+        if self.merge_send_as_sender:
+            sender_id = event.get_sender_id()
+            if sender_id:
+                return str(sender_id)
+        return str(event.get_self_id())
     # endregion
 
 

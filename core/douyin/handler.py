@@ -297,23 +297,23 @@ class DouyinMixin:
             )
         timing["render"] = time_module.perf_counter() - render_start
         # endregion
-        
+
         # region 发送阶段
         send_start = time_module.perf_counter()
-        
+
         if enable_merge_send:
             # 合并转发：卡片 + 媒体
             nodes = Nodes([])
-            self_id = str(event.get_self_id())
-            
+            sender_uin = self._get_merge_sender_uin(event)
+
             if card_path and card_path.exists():
                 nodes.nodes.append(
-                    Node(uin=self_id, name="DouyinBot", content=[Image.fromFileSystem(str(card_path.resolve()))])
+                    Node(uin=sender_uin, content=[Image.fromFileSystem(str(card_path.resolve()))])
                 )
-            
+
             for component in media_components:
-                nodes.nodes.append(Node(uin=self_id, name="DouyinBot", content=[component]))
-            
+                nodes.nodes.append(Node(uin=sender_uin, content=[component]))
+
             logger.debug("🚀 抖音合并消息准备发送%s: 节点数=%d", source_tag, len(nodes.nodes))
             await event.send(MessageChain([nodes]))
         else:

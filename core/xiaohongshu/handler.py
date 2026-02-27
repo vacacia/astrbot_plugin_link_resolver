@@ -693,9 +693,9 @@ class XiaohongshuMixin:
 
         if should_merge:
             nodes = Nodes([])
-            self_id = str(event.get_self_id())
+            sender_uin = self._get_merge_sender_uin(event)
             for component in media_components:
-                nodes.nodes.append(Node(uin=self_id, name="MyParser", content=[component]))
+                nodes.nodes.append(Node(uin=sender_uin, content=[component]))
             await event.send(MessageChain([nodes]))
         else:
             if is_image_post:
