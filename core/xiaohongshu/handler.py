@@ -752,7 +752,6 @@ class XiaohongshuMixin:
             return
         if await self._is_bot_muted(event):
             return
-        self._register_parse_task("xhs", event)
         event.should_call_llm(True)
         links = extract_xhs_links(event.message_str)
         logger.info("🍠 小红书匹配链接: %s", links)

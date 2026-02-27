@@ -1154,7 +1154,6 @@ class BilibiliMixin:
             return
         if await self._is_bot_muted(event):
             return
-        self._register_parse_task("bili", event)
         event.should_call_llm(True)
         try:
             ref = await self._resolve_video_ref_from_text(event.message_str)

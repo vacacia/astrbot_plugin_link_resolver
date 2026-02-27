@@ -356,7 +356,6 @@ class DouyinMixin:
             return
         if await self._is_bot_muted(event):
             return
-        self._register_parse_task("douyin", event)
         event.should_call_llm(True)
         links = extract_douyin_links(event.message_str)
         logger.info("🎵 抖音匹配链接: %s", links)
