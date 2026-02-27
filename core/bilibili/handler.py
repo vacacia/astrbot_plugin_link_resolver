@@ -355,9 +355,9 @@ class BilibiliMixin:
                         if value:
                             links.extend(self.extract_links_from_text(value, include_ids=False))
 
-            logger.info("从 JSON 组件中提取到链接: %s", links)
+            logger.debug("从 JSON 组件中提取到链接: %s", links)
         except Exception as exc:
-            logger.warning("解析 JSON 消息组件失败: %s", str(exc))
+            logger.warning("⚠️ 解析 JSON 消息组件失败: %s", str(exc))
         return links
     # endregion
 
@@ -385,7 +385,7 @@ class BilibiliMixin:
         try:
             raw = cookies_file.read_text(encoding="utf-8").strip()
         except Exception as exc:
-            logger.warning("🍪 读取 cookies 失败: %s", str(exc))
+            logger.warning("⚠️ 读取 cookies 失败: %s", str(exc))
             return {}
         if not raw:
             return {}
@@ -405,7 +405,7 @@ class BilibiliMixin:
             jar.load(str(cookies_file), ignore_discard=True, ignore_expires=True)
             return {cookie.name: cookie.value for cookie in jar}
         except Exception as exc:
-            logger.warning("🍪 读取 cookies 失败: %s", str(exc))
+            logger.warning("⚠️ 读取 cookies 失败: %s", str(exc))
             return {}
 
     def _load_cookies(self) -> dict[str, str]:
@@ -430,7 +430,7 @@ class BilibiliMixin:
         try:
             return Credential.from_cookies(cookies)
         except Exception as exc:
-            logger.warning("🍪 读取 cookies 失败，使用简化凭证: %s", str(exc))
+            logger.warning("⚠️ 读取 cookies 失败，使用简化凭证: %s", str(exc))
             return Credential(sessdata=cookies.get("SESSDATA"))
 
     async def _check_cookie_status(self, cookies: dict[str, str]) -> CookieStatus:
@@ -498,7 +498,7 @@ class BilibiliMixin:
             download_url_data, video_stream, audio_stream
         )
 
-        logger.info(
+        logger.debug(
             "🎞️ 实际选用画质: %s, 编码: %s, 预估大小: %s MB",
             video_stream.video_quality.name,
             video_stream.video_codecs,
@@ -594,7 +594,7 @@ class BilibiliMixin:
                     lower_qualities = self._get_lower_qualities(actual_quality)
                     if lower_qualities:
                         next_quality = lower_qualities[0]
-                        logger.info(
+                        logger.warning(
                             "⚠️ 画质 %s 超限 (%.2fMB > %dMB)，尝试降至 %s",
                             actual_quality.name,
                             size_mb,
@@ -764,7 +764,7 @@ class BilibiliMixin:
             await self._download_stream(cover_url, cover_path, cookies=None, max_bytes=None)
             return cover_path
         except Exception as exc:
-            logger.warning("❌ 下载B站封面失败: %s", str(exc))
+            logger.warning("⚠️ 下载B站封面失败: %s", str(exc))
             return None
 
     def _format_count(self, count: int) -> str:
@@ -812,10 +812,10 @@ class BilibiliMixin:
             card_path = get_bilibili_card_path() / f"{bvid}_card.png"
             await asyncio.to_thread(card_img.save, card_path)
 
-            logger.info("✅ B站卡片渲染成功: %s", card_path)
+            logger.debug("✅ B站卡片渲染成功: %s", card_path)
             return card_path
         except Exception as exc:
-            logger.warning("❌ B站卡片渲染失败: %s", str(exc))
+            logger.warning("⚠️ B站卡片渲染失败: %s", str(exc))
             return None
     # endregion
 
@@ -875,7 +875,7 @@ class BilibiliMixin:
             stat = info.get("stat", {})
             bvid = info.get("bvid") or ref.bvid
             if not bvid:
-                logger.warning("❌ 无法获取 bvid%s", source_tag)
+                logger.warning("⚠️ 无法获取 bvid%s", source_tag)
                 return
 
             title = info.get("title", "未知标题")
@@ -889,7 +889,7 @@ class BilibiliMixin:
             cover_url = info.get("pic", "")
 
             logger.debug(
-                "� B站解析完成%s: bvid=%s, 标题=%s, 解析耗时=%.2fs",
+                "✅ B站解析完成%s: bvid=%s, 标题=%s, 解析耗时=%.2fs",
                 source_tag,
                 bvid,
                 title[:30],
@@ -974,7 +974,7 @@ class BilibiliMixin:
                         video_paths.append(video_path)
                         page_elapsed = time.perf_counter() - page_start
                         logger.debug(
-                            "� B站分P下载成功%s [%d/%d]: size=%.2fMB, 画质=%s, 耗时=%.2fs",
+                            "✅ B站分P下载成功%s [%d/%d]: size=%.2fMB, 画质=%s, 耗时=%.2fs",
                             source_tag, idx + 1, len(page_indexes),
                             size_bytes / 1024 / 1024,
                             actual_quality,
@@ -1043,7 +1043,7 @@ class BilibiliMixin:
                 size_bytes = self._assert_video_file_ready(video_path, source_tag, request_id)
                 video_paths.append(video_path)
                 logger.debug(
-                    "📥 B站视频下载成功%s: size=%.2fMB, 画质=%s, 耗时=%.2fs",
+                    "✅ B站视频下载成功%s: size=%.2fMB, 画质=%s, 耗时=%.2fs",
                     source_tag,
                     size_bytes / 1024 / 1024,
                     actual_quality,

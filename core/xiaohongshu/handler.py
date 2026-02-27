@@ -105,7 +105,7 @@ class XiaohongshuMixin:
         size_mb = await self._estimate_total_size_mb(
             url, None, headers=self._xhs_download_headers(referer), cookies=cookies
         )
-        logger.info(
+        logger.debug(
             "📹 估算小红书视频大小: %s MB",
             f"{size_mb:.2f}" if size_mb is not None else "未知",
         )
@@ -367,8 +367,8 @@ class XiaohongshuMixin:
 
                                             attempt_elapsed = time.perf_counter() - attempt_start
                                             total_elapsed = time.perf_counter() - start_time
-                                            logger.info(
-                                                "XHS CDN 图片下载成功 (%s): size=%.1fKB, 请求耗时=%.2fs, 总耗时=%.2fs",
+                                            logger.debug(
+                                                "📥 XHS CDN 图片下载成功 (%s): size=%.1fKB, 请求耗时=%.2fs, 总耗时=%.2fs",
                                                 desc, content_len / 1024, attempt_elapsed, total_elapsed
                                             )
                                             return output_path
@@ -401,7 +401,7 @@ class XiaohongshuMixin:
         # 全部失败
         total_elapsed = time.perf_counter() - start_time
         error_summary = " | ".join(errors[:5])  # 只取前5个错误
-        logger.error("XHS 图片下载全线失败: 总耗时=%.2fs, 错误=%s", total_elapsed, error_summary)
+        logger.error("❌ XHS 图片下载全线失败: 总耗时=%.2fs, 错误=%s", total_elapsed, error_summary)
         raise RuntimeError(f"图片下载失败: {error_summary}")
     
     @staticmethod
@@ -481,7 +481,7 @@ class XiaohongshuMixin:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.warning("小红书卡片渲染失败: %s", str(exc))
+            logger.warning("⚠️ 小红书卡片渲染失败: %s", str(exc))
             return None
     # endregion
 
@@ -503,7 +503,7 @@ class XiaohongshuMixin:
         target_link = (target_link or "").strip()
             
         if not target_link:
-            logger.info("⚠️ 小红书链接为空%s", source_tag)
+            logger.warning("⚠️ 小红书链接为空%s", source_tag)
             return
         logger.info("🍠 小红书解析%s: %s", source_tag, target_link)
 
@@ -588,7 +588,7 @@ class XiaohongshuMixin:
         author = result.author or "未知作者"
 
         if not result.video_url and not result.image_urls:
-            logger.warning("❌ 小红书未找到可下载的媒体%s: %s", source_tag, target_link)
+            logger.warning("⚠️ 小红书未找到可下载的媒体%s: %s", source_tag, target_link)
             return
 
         media_components: list[object] = []
@@ -619,11 +619,11 @@ class XiaohongshuMixin:
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
-                        logger.warning("小红书封面下载失败%s: %s", source_tag, str(exc))
+                        logger.warning("⚠️ 小红书封面下载失败%s: %s", source_tag, str(exc))
             except asyncio.CancelledError:
                 raise
             except SizeLimitExceeded:
-                logger.warning("❌ 小红书视频大小超过限制%s (%dMB)", source_tag, self.max_video_size_mb)
+                logger.warning("⚠️ 小红书视频大小超过限制%s (%dMB)", source_tag, self.max_video_size_mb)
                 return
             except Exception as exc:
                 logger.error("❌ 小红书视频下载失败%s: %s", source_tag, str(exc))
@@ -646,7 +646,7 @@ class XiaohongshuMixin:
                     raise
                 except Exception as exc:
                     failed_images += 1
-                    logger.warning("小红书图片下载失败%s [%d/%d]: %s", source_tag, i + 1, len(image_urls), str(exc))
+                    logger.warning("⚠️ 小红书图片下载失败%s [%d/%d]: %s", source_tag, i + 1, len(image_urls), str(exc))
         
         timing["download"] = time.perf_counter() - download_start
         # endregion

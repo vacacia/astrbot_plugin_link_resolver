@@ -47,7 +47,7 @@ class XiaohongshuCardRenderer:
         if not self.font_path:
             from astrbot.api import logger
 
-            logger.warning("小红书渲染器未找到中文字体，预览图可能出现乱码。")
+            logger.warning("⚠️ 小红书渲染器未找到中文字体，预览图可能出现乱码")
 
     def render(
         self,

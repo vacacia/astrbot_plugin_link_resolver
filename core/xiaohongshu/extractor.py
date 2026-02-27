@@ -130,7 +130,7 @@ def load_xhs_cookies() -> dict[str, str]:
         logger.info("🍪 小红书 cookies 加载成功 (Netscape): %d 个", len(cookies))
         return cookies
     except Exception as exc:
-        logger.warning("🍪 小红书 cookies 加载失败: %s", str(exc))
+        logger.warning("⚠️ 小红书 cookies 加载失败: %s", str(exc))
         return {}
 
 
@@ -298,7 +298,7 @@ class XiaohongshuExtractor:
         for i, img in enumerate(image_list):
             if isinstance(img, dict):
                 # 记录详细的图片数据以便排查旧版笔记
-                logger.debug(f"XHS Image[{i}] full data: {img}")
+                logger.debug("XHS Image[%d] full data: %s", i, img)
                 
                 # 获取图片 URL
                 img_url = self._get_original_image_url(img)
@@ -308,7 +308,7 @@ class XiaohongshuExtractor:
                 file_id = self._get_file_id_from_image(img)
                 file_ids.append(file_id)  # 可能是 None，保持索引对应
         
-        logger.debug(f"XHS Extracted file_ids: {file_ids}")
+        logger.debug("XHS Extracted file_ids: %s", file_ids)
 
         # 视频
         video_url = self._extract_video_url(note)
@@ -329,7 +329,7 @@ class XiaohongshuExtractor:
         note_type = note.get("type", "")
         note_id = note.get("noteId") or note.get("id")
 
-        logger.info(
+        logger.debug(
             "XHS 解析完成: type=%s, images=%d, video=%s",
             note_type, len(image_urls), "有" if video_url else "无"
         )

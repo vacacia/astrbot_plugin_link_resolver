@@ -98,7 +98,7 @@ class UniversalCardRenderer:
             try:
                 from astrbot.api import logger
 
-                logger.warning("[CardRenderer] 未找到中文字体，预览图可能出现乱码")
+                logger.warning("⚠️ 未找到中文字体，预览图可能出现乱码")
             except ImportError:
                 pass
 

@@ -88,7 +88,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                 cookies_file.write_text(bili_cookies_str, encoding="utf-8")
                 logger.info("🍪 B站 Cookie 已从配置写入文件")
             except Exception as exc:
-                logger.warning("🍪 写入 B站 Cookie 文件失败: %s", str(exc))
+                logger.warning("⚠️ 写入 B站 Cookie 文件失败: %s", str(exc))
         
         # 抖音配置
         self.douyin_max_media = max(1, int(self._get_config_value("douyin_max_media", 9)))
@@ -353,7 +353,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                         if value:
                             links.extend(self._extract_urls_from_text(value))
         except Exception as exc:
-            logger.warning("解析 JSON 消息组件失败: %s", str(exc))
+            logger.warning("⚠️ 解析 JSON 消息组件失败: %s", str(exc))
         return links
     # endregion
 
@@ -445,7 +445,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                 set=True,
             )
         except Exception as exc:
-            logger.warning("表情回应失败%s: %s", source_tag, str(exc))
+            logger.warning("⚠️ 表情回应失败%s: %s", source_tag, str(exc))
     # endregion
 
     # region 下载工具
@@ -545,7 +545,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                     await asyncio.to_thread(temp_path.unlink, missing_ok=True)
                 if attempt < retries - 1:
                     wait_time = 2 ** attempt
-                    logger.warning("下载失败, %d秒后重试 (%d/%d): %s", wait_time, attempt + 1, retries, str(exc))
+                    logger.warning("⚠️ 下载失败, %d秒后重试 (%d/%d): %s", wait_time, attempt + 1, retries, str(exc))
                     await asyncio.sleep(wait_time)
         if last_error:
             raise last_error
@@ -588,7 +588,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.error("❌ 下载封面失败: %s", str(exc))
+            logger.warning("⚠️ 下载封面失败: %s", str(exc))
         return False
 
     async def calculate_md5(self, file_path: Path) -> str:
@@ -678,7 +678,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                         comp_payload = component.data
                 if is_json_component:
                     has_json_component = True
-                    logger.info("🎴 检测到 JSON 卡片消息: %s", component)
+                    logger.info("🔗 检测到 JSON 卡片消息: %s", component)
                     links.extend(self.extract_links_from_json(comp_payload))
         if not has_json_component:
             return
@@ -701,7 +701,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                 if ref:
                     await self._process_bili_video(event, ref=ref, is_from_card=True)
                     return
-                logger.info("⚠️ 从卡片中找到 B 站链接但无法解析: %s", bili_links)
+                logger.warning("⚠️ 从卡片中找到 B 站链接但无法解析: %s", bili_links)
             except asyncio.CancelledError:
                 logger.info("♻️ JSON卡片解析任务已中断")
                 return
@@ -726,6 +726,6 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                 logger.info("♻️ JSON卡片解析任务已中断")
                 return
 
-        logger.info("⚠️ 从卡片中找到链接但无法解析: %s", unique_links)
+        logger.warning("⚠️ 从卡片中找到链接但无法解析: %s", unique_links)
     # endregion
 # endregion

@@ -37,8 +37,8 @@ class DouyinMixin:
     async def _download_douyin_video(self, url: str, request_id: str) -> Path:
         max_bytes = self.max_video_size_mb * 1024 * 1024 if self.max_video_size_mb > 0 else None
         size_mb = await self._estimate_total_size_mb(url, None, headers=IOS_HEADERS)
-        logger.info(
-            "🎥 估算抖音视频大小: %s MB",
+        logger.debug(
+            "🎵 估算抖音视频大小: %s MB",
             f"{size_mb:.2f}" if size_mb is not None else "未知",
         )
         if size_mb is not None and max_bytes and size_mb * 1024 * 1024 > max_bytes:
@@ -108,7 +108,7 @@ class DouyinMixin:
             await asyncio.to_thread(card_img.save, card_path)
             return card_path
         except Exception as exc:
-            logger.warning("❌ 抖音卡片渲染失败: %s", str(exc))
+            logger.warning("⚠️ 抖音卡片渲染失败: %s", str(exc))
             return None
 
     # region 抖音处理
@@ -129,7 +129,7 @@ class DouyinMixin:
         await self._send_reaction_emoji(event, source_tag)
         
         if not target_link:
-            logger.info("⚠️ 抖音链接为空%s", source_tag)
+            logger.warning("⚠️ 抖音链接为空%s", source_tag)
             return
         logger.info("🎵 抖音解析%s: %s", source_tag, target_link)
 
@@ -191,7 +191,7 @@ class DouyinMixin:
         author = result.author or "未知作者"
 
         if not result.video_url and not result.image_urls and not result.dynamic_urls:
-            logger.warning("❌ 抖音未找到可下载的媒体%s", source_tag)
+            logger.warning("⚠️ 抖音未找到可下载的媒体%s", source_tag)
             return
 
         media_components: list[object] = []
@@ -224,7 +224,7 @@ class DouyinMixin:
                     raise
                 except Exception as exc:
                     failed_images += 1
-                    logger.warning("抖音图片下载失败%s [%d/%d]: %s", source_tag, i + 1, len(image_urls), str(exc))
+                    logger.warning("⚠️ 抖音图片下载失败%s [%d/%d]: %s", source_tag, i + 1, len(image_urls), str(exc))
 
             for i, url in enumerate(dynamic_urls):
                 try:
@@ -242,10 +242,10 @@ class DouyinMixin:
                     raise
                 except SizeLimitExceeded:
                     failed_dynamics += 1
-                    logger.warning("抖音动图视频超过大小限制%s [%d/%d]", source_tag, i + 1, len(dynamic_urls))
+                    logger.warning("⚠️ 抖音动图视频超过大小限制%s [%d/%d]", source_tag, i + 1, len(dynamic_urls))
                 except Exception as exc:
                     failed_dynamics += 1
-                    logger.warning("抖音动图视频下载失败%s [%d/%d]: %s", source_tag, i + 1, len(dynamic_urls), str(exc))
+                    logger.warning("⚠️ 抖音动图视频下载失败%s [%d/%d]: %s", source_tag, i + 1, len(dynamic_urls), str(exc))
         elif result.video_url:
             logger.debug("📥 抖音视频下载开始%s...", source_tag)
             try:
@@ -262,7 +262,7 @@ class DouyinMixin:
             except asyncio.CancelledError:
                 raise
             except SizeLimitExceeded:
-                logger.warning("❌ 抖音视频超过大小限制%s (%dMB)", source_tag, self.max_video_size_mb)
+                logger.warning("⚠️ 抖音视频超过大小限制%s (%dMB)", source_tag, self.max_video_size_mb)
                 return
             except Exception as exc:
                 logger.error("❌ 抖音视频下载失败%s: %s", source_tag, str(exc))
@@ -272,13 +272,13 @@ class DouyinMixin:
         # endregion
 
         if not media_components:
-            logger.warning("❌ 抖音媒体下载全部失败%s, 下载耗时=%.2fs", source_tag, timing["download"])
+            logger.warning("⚠️ 抖音媒体下载全部失败%s, 下载耗时=%.2fs", source_tag, timing["download"])
             return
 
         # Build failure summary (只记录日志，不发送给用户)
         total_failed = failed_images + failed_dynamics
         if total_failed > 0:
-            logger.warning("抖音部分媒体下载失败%s: 图片=%d, 动图=%d", source_tag, failed_images, failed_dynamics)
+            logger.warning("⚠️ 抖音部分媒体下载失败%s: 图片=%d, 动图=%d", source_tag, failed_images, failed_dynamics)
 
         # 判断是否为图文笔记（有图片或动图）
         is_image_post = bool(image_urls or dynamic_urls)
