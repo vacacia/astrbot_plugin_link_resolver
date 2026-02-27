@@ -28,7 +28,6 @@ from .core.xiaohongshu.handler import XiaohongshuMixin
 
 # region 运行时常量
 TASK_NAME_PREFIX = "myparser-parse"
-ACTIVE_PARSE_TASKS: set[asyncio.Task] = set()
 # endregion
 
 # region MyParser 类
@@ -38,7 +37,10 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         super().__init__(context)
         self.context = context
         self.config = config or context.get_config()
+        # 注意：必须在 _active_parse_tasks 初始化之前调用；
+        # 该方法通过 asyncio.all_tasks() 扫描清理旧任务，不依赖实例任务池。
         self._cancel_previous_parse_tasks()
+        self._active_parse_tasks: set[asyncio.Task] = set()
         self.douyin_extractor = DouyinExtractor()
         self.xhs_extractor = XiaohongshuExtractor()
         self.xhs_renderer = XiaohongshuCardRenderer(find_default_font())
@@ -148,14 +150,16 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
             task.set_name(f"{TASK_NAME_PREFIX}:{tag}:{int(time.time() * 1000)}")
         except Exception:
             pass
-        ACTIVE_PARSE_TASKS.add(task)
-        task.add_done_callback(lambda t: ACTIVE_PARSE_TASKS.discard(t))
+        self._active_parse_tasks.add(task)
+        task.add_done_callback(lambda t: self._active_parse_tasks.discard(t))
 
     def _cancel_previous_parse_tasks(self) -> None:
+        """通过 asyncio.all_tasks() 按任务名/协程名扫描并取消旧解析任务。
+
+        不依赖 self._active_parse_tasks（调用时该属性尚未初始化）。
+        """
         cancelled: list[str] = []
         candidates: set[asyncio.Task] = set()
-        candidates.update(ACTIVE_PARSE_TASKS)
-        ACTIVE_PARSE_TASKS.clear()
 
         loop = None
         try:
