@@ -342,23 +342,50 @@ class XiaohongshuMixin:
                         ) as session:
                             async with session.get(cand_url) as resp:
                                 if resp.status == 200:
-                                    content = await resp.read()
-                                    if len(content) >= 1024:
-                                        temp_path = output_path.with_suffix(output_path.suffix + ".part")
-                                        def _save_fallback():
-                                            with open(temp_path, "wb") as f:
-                                                f.write(content)
-                                            if temp_path.exists():
+                                    temp_path = output_path.with_suffix(output_path.suffix + ".part")
+                                    content_len = 0
+                                    f = None
+                                    try:
+                                        def _open_part():
+                                            temp_path.parent.mkdir(parents=True, exist_ok=True)
+                                            return open(temp_path, "wb")
+                                        f = await asyncio.to_thread(_open_part)
+                                        try:
+                                            async for chunk in resp.content.iter_chunked(256 * 1024):
+                                                if not chunk:
+                                                    continue
+                                                content_len += len(chunk)
+                                                await asyncio.to_thread(f.write, chunk)
+                                        finally:
+                                            if f is not None:
+                                                await asyncio.to_thread(f.close)
+
+                                        if content_len >= 1024 and temp_path.exists():
+                                            def _move():
                                                 temp_path.replace(output_path)
-                                        await asyncio.to_thread(_save_fallback)
-                                        
-                                        attempt_elapsed = time.perf_counter() - attempt_start
-                                        total_elapsed = time.perf_counter() - start_time
-                                        logger.info(
-                                            "XHS CDN 图片下载成功 (%s): size=%.1fKB, 请求耗时=%.2fs, 总耗时=%.2fs",
-                                            desc, len(content) / 1024, attempt_elapsed, total_elapsed
-                                        )
-                                        return output_path
+                                            await asyncio.to_thread(_move)
+
+                                            attempt_elapsed = time.perf_counter() - attempt_start
+                                            total_elapsed = time.perf_counter() - start_time
+                                            logger.info(
+                                                "XHS CDN 图片下载成功 (%s): size=%.1fKB, 请求耗时=%.2fs, 总耗时=%.2fs",
+                                                desc, content_len / 1024, attempt_elapsed, total_elapsed
+                                            )
+                                            return output_path
+                                        else:
+                                            logger.debug("XHS CDN 图片过小，忽略 (%s): size=%d bytes", desc, content_len)
+                                            errors.append(f"{desc}: 文件过小 ({content_len} bytes)")
+                                            if temp_path.exists():
+                                                await asyncio.to_thread(temp_path.unlink)
+                                    except asyncio.CancelledError:
+                                        raise
+                                    except Exception:
+                                        if temp_path.exists():
+                                            try:
+                                                await asyncio.to_thread(temp_path.unlink)
+                                            except Exception:
+                                                pass
+                                        raise
                                 
                                 errors.append(f"{desc}: HTTP {resp.status}")
                     except asyncio.CancelledError:
