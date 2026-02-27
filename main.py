@@ -31,7 +31,7 @@ TASK_NAME_PREFIX = "myparser-parse"
 # endregion
 
 # region MyParser 类
-@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.5")
+@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.6")
 class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | dict | None = None):
         super().__init__(context)
