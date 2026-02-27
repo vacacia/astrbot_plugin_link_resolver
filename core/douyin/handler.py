@@ -1,5 +1,6 @@
 # region 导入
 import asyncio
+import time
 import uuid
 from pathlib import Path
 
@@ -114,8 +115,7 @@ class DouyinMixin:
     async def _process_douyin(
         self, event: AstrMessageEvent, target_link: str, is_from_card: bool = False
     ):
-        import time as time_module
-        process_start = time_module.perf_counter()
+        process_start = time.perf_counter()
         timing = {}  # 记录各步骤耗时
         
         self._refresh_config()
@@ -134,7 +134,7 @@ class DouyinMixin:
         logger.info("🎵 抖音解析%s: %s", source_tag, target_link)
 
         # region 解析阶段
-        parse_start = time_module.perf_counter()
+        parse_start = time.perf_counter()
         retry_count = getattr(self, 'retry_count', 3)
         result = None
         last_error = None
@@ -171,7 +171,7 @@ class DouyinMixin:
                 else:
                     logger.error("❌ 抖音解析异常%s: %s (已重试%d次)", source_tag, str(exc), retry_count)
         
-        timing["parse"] = time_module.perf_counter() - parse_start
+        timing["parse"] = time.perf_counter() - parse_start
         
         if result is None:
             logger.error("❌ 抖音解析最终失败%s: %s, 解析耗时=%.2fs", source_tag, last_error, timing["parse"])
@@ -204,13 +204,13 @@ class DouyinMixin:
         dynamic_urls = result.dynamic_urls[:remaining]
 
         # region 下载阶段
-        download_start = time_module.perf_counter()
+        download_start = time.perf_counter()
         
         if image_urls or dynamic_urls:
             logger.debug("📥 抖音下载开始%s: 图片=%d, 动图=%d", source_tag, len(image_urls), len(dynamic_urls))
             for i, url in enumerate(image_urls):
                 try:
-                    img_start = time_module.perf_counter()
+                    img_start = time.perf_counter()
                     image_path = await self._download_douyin_image(url, request_id)
                     media_paths.append(image_path)
                     media_components.append(Image.fromFileSystem(str(image_path.resolve())))
@@ -218,7 +218,7 @@ class DouyinMixin:
                         "📥 抖音图片下载成功%s [%d/%d]: size=%.1fKB, 耗时=%.2fs",
                         source_tag, i + 1, len(image_urls),
                         image_path.stat().st_size / 1024,
-                        time_module.perf_counter() - img_start
+                        time.perf_counter() - img_start
                     )
                 except asyncio.CancelledError:
                     raise
@@ -228,7 +228,7 @@ class DouyinMixin:
 
             for i, url in enumerate(dynamic_urls):
                 try:
-                    dyn_start = time_module.perf_counter()
+                    dyn_start = time.perf_counter()
                     video_path = await self._download_douyin_video(url, request_id)
                     media_paths.append(video_path)
                     media_components.append(Video.fromFileSystem(str(video_path.resolve())))
@@ -236,7 +236,7 @@ class DouyinMixin:
                         "📥 抖音动图下载成功%s [%d/%d]: size=%.2fMB, 耗时=%.2fs",
                         source_tag, i + 1, len(dynamic_urls),
                         video_path.stat().st_size / 1024 / 1024,
-                        time_module.perf_counter() - dyn_start
+                        time.perf_counter() - dyn_start
                     )
                 except asyncio.CancelledError:
                     raise
@@ -249,7 +249,7 @@ class DouyinMixin:
         elif result.video_url:
             logger.debug("📥 抖音视频下载开始%s...", source_tag)
             try:
-                video_start = time_module.perf_counter()
+                video_start = time.perf_counter()
                 video_path = await self._download_douyin_video(result.video_url, request_id)
                 media_paths.append(video_path)
                 media_components.append(Video.fromFileSystem(str(video_path.resolve())))
@@ -257,7 +257,7 @@ class DouyinMixin:
                     "📥 抖音视频下载成功%s: size=%.2fMB, 耗时=%.2fs",
                     source_tag,
                     video_path.stat().st_size / 1024 / 1024,
-                    time_module.perf_counter() - video_start
+                    time.perf_counter() - video_start
                 )
             except asyncio.CancelledError:
                 raise
@@ -268,7 +268,7 @@ class DouyinMixin:
                 logger.error("❌ 抖音视频下载失败%s: %s", source_tag, str(exc))
                 return
 
-        timing["download"] = time_module.perf_counter() - download_start
+        timing["download"] = time.perf_counter() - download_start
         # endregion
 
         if not media_components:
@@ -286,7 +286,7 @@ class DouyinMixin:
         enable_merge_send = is_image_post or getattr(self, "douyin_merge_send", True)
         
         # region 渲染阶段
-        render_start = time_module.perf_counter()
+        render_start = time.perf_counter()
         card_path = None
         
         # 图文笔记始终渲染卡片；视频笔记仅在合并发送时渲染
@@ -299,11 +299,11 @@ class DouyinMixin:
                 comments=result.comments,
                 request_id=request_id,
             )
-        timing["render"] = time_module.perf_counter() - render_start
+        timing["render"] = time.perf_counter() - render_start
         # endregion
 
         # region 发送阶段
-        send_start = time_module.perf_counter()
+        send_start = time.perf_counter()
 
         if enable_merge_send:
             # 合并转发：卡片 + 媒体
@@ -325,11 +325,11 @@ class DouyinMixin:
             logger.debug("🚀 抖音普通消息准备发送%s: 媒体数=%d", source_tag, len(media_components))
             await event.send(MessageChain([media_components[0]]))
 
-        timing["send"] = time_module.perf_counter() - send_start
+        timing["send"] = time.perf_counter() - send_start
         # endregion
 
         # 输出完整耗时日志
-        total_elapsed = time_module.perf_counter() - process_start
+        total_elapsed = time.perf_counter() - process_start
         logger.info(
             "🎵 抖音处理完成%s: 标题=%s, 媒体=%d, 失败=%d | 耗时: 解析=%.2fs, 下载=%.2fs, 渲染=%.2fs, 发送=%.2fs, 总计=%.2fs",
             source_tag,

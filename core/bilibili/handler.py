@@ -1,6 +1,7 @@
 # region 导入
 import asyncio
 import json
+import time
 import re
 import shutil
 import uuid
@@ -822,8 +823,7 @@ class BilibiliMixin:
     async def _process_bili_video(
         self, event: AstrMessageEvent, ref: VideoRef, is_from_card: bool = False
     ):
-        import time as time_module
-        process_start = time_module.perf_counter()
+        process_start = time.perf_counter()
         timing = {}  # 记录各步骤耗时
         
         self._refresh_config()
@@ -861,7 +861,7 @@ class BilibiliMixin:
 
         try:
             # region 解析阶段
-            parse_start = time_module.perf_counter()
+            parse_start = time.perf_counter()
             try:
                 info = await self._get_video_info(video_obj, source_tag)
             except asyncio.CancelledError:
@@ -869,7 +869,7 @@ class BilibiliMixin:
             except Exception:
                 # 错误日志已在 _get_video_info 中输出
                 return
-            timing["parse"] = time_module.perf_counter() - parse_start
+            timing["parse"] = time.perf_counter() - parse_start
             # endregion
 
             stat = info.get("stat", {})
@@ -938,7 +938,7 @@ class BilibiliMixin:
             thumbnail_paths: list[Path] = []
 
             # region 下载阶段
-            download_start = time_module.perf_counter()
+            download_start = time.perf_counter()
 
             if is_multi_page:
                 nodes = Nodes([])
@@ -961,7 +961,7 @@ class BilibiliMixin:
                     page_title = page_info.get("part") or title
                     page_duration = page_info.get("duration") or duration_seconds
                     try:
-                        page_start = time_module.perf_counter()
+                        page_start = time.perf_counter()
                         video_path, actual_quality = await self._download_video(
                             video_obj,
                             bvid,
@@ -972,7 +972,7 @@ class BilibiliMixin:
                         )
                         size_bytes = self._assert_video_file_ready(video_path, source_tag, request_id)
                         video_paths.append(video_path)
-                        page_elapsed = time_module.perf_counter() - page_start
+                        page_elapsed = time.perf_counter() - page_start
                         logger.debug(
                             "� B站分P下载成功%s [%d/%d]: size=%.2fMB, 画质=%s, 耗时=%.2fs",
                             source_tag, idx + 1, len(page_indexes),
@@ -999,14 +999,14 @@ class BilibiliMixin:
                         error_text = f"❌ 分P {idx + 1} 下载失败: {str(exc)}"
                         nodes.nodes.append(Node(uin=sender_uin, content=[Plain(error_text)]))
 
-                timing["download"] = time_module.perf_counter() - download_start
+                timing["download"] = time.perf_counter() - download_start
                 
                 # region 发送阶段
-                send_start = time_module.perf_counter()
+                send_start = time.perf_counter()
                 for path in video_paths:
                     self._assert_video_file_ready(path, source_tag, request_id)
                 await event.send(MessageChain([nodes]))
-                timing["send"] = time_module.perf_counter() - send_start
+                timing["send"] = time.perf_counter() - send_start
                 # endregion
 
                 if BILI_QQ_THUMB_PATH and cover_url and video_paths:
@@ -1019,7 +1019,7 @@ class BilibiliMixin:
                             thumbnail_paths.append(thumbnail_save_path)
 
                 # 输出完整耗时日志
-                total_elapsed = time_module.perf_counter() - process_start
+                total_elapsed = time.perf_counter() - process_start
                 logger.info(
                     "🎬 B站处理完成%s: 标题=%s, 分P=%d | 耗时: 解析=%.2fs, 下载=%.2fs, 发送=%.2fs, 总计=%.2fs",
                     source_tag,
@@ -1047,7 +1047,7 @@ class BilibiliMixin:
                     source_tag,
                     size_bytes / 1024 / 1024,
                     actual_quality,
-                    time_module.perf_counter() - download_start
+                    time.perf_counter() - download_start
                 )
             except asyncio.CancelledError:
                 raise
@@ -1059,11 +1059,11 @@ class BilibiliMixin:
                 event.set_result(event.plain_result(f"❌ 视频下载失败: {str(exc)}"))
                 return
 
-            timing["download"] = time_module.perf_counter() - download_start
+            timing["download"] = time.perf_counter() - download_start
             # endregion
 
             # region 渲染阶段
-            render_start = time_module.perf_counter()
+            render_start = time.perf_counter()
             card_path = None
             if self.bili_merge_send:
                 card_path = await self._render_bili_card(
@@ -1075,11 +1075,11 @@ class BilibiliMixin:
                     likes=likes,
                     coins=coins,
                 )
-            timing["render"] = time_module.perf_counter() - render_start
+            timing["render"] = time.perf_counter() - render_start
             # endregion
 
             # region 发送阶段
-            send_start = time_module.perf_counter()
+            send_start = time.perf_counter()
             
             try:
                 self._assert_video_file_ready(video_path, source_tag, request_id)
@@ -1106,7 +1106,7 @@ class BilibiliMixin:
                     logger.debug("🚀 B站普通消息准备发送%s", source_tag)
                     await event.send(MessageChain([video_component]))
 
-                timing["send"] = time_module.perf_counter() - send_start
+                timing["send"] = time.perf_counter() - send_start
                 # endregion
 
                 if BILI_QQ_THUMB_PATH and cover_url:
@@ -1118,7 +1118,7 @@ class BilibiliMixin:
                         thumbnail_paths.append(thumbnail_save_path)
 
                 # 输出完整耗时日志
-                total_elapsed = time_module.perf_counter() - process_start
+                total_elapsed = time.perf_counter() - process_start
                 logger.info(
                     "🎬 B站处理完成%s: 标题=%s, 画质=%s | 耗时: 解析=%.2fs, 下载=%.2fs, 渲染=%.2fs, 发送=%.2fs, 总计=%.2fs",
                     source_tag,

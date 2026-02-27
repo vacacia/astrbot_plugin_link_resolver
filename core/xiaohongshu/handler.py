@@ -1,6 +1,7 @@
 # region 导入
 import asyncio
 import re
+import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
@@ -134,8 +135,7 @@ class XiaohongshuMixin:
         2. 如果 PNG 失败：尝试 JPEG 原图
         3. 如果都失败：回退到多 CDN 兜底策略
         """
-        import time as time_module
-        start_time = time_module.perf_counter()
+        start_time = time.perf_counter()
         
         output_path = self._build_xhs_path(url, is_video=False, request_id=request_id)
         cookies = self._get_xhs_cookies()
@@ -146,7 +146,7 @@ class XiaohongshuMixin:
         
         # region 原图下载尝试
         if getattr(self, 'xhs_download_original', True) and token:
-            original_start = time_module.perf_counter()
+            original_start = time.perf_counter()
             
             # 构建原图 URL 候选列表
             # 策略：优先 imageView2/format/png 获取无损 PNG 原图（XHS-Downloader 默认模式）
@@ -188,7 +188,7 @@ class XiaohongshuMixin:
                 format_name = cand["format"]
                 
                 for attempt in range(retry_count + 1):
-                    attempt_start = time_module.perf_counter()
+                    attempt_start = time.perf_counter()
                     try:
                         timeout = aiohttp.ClientTimeout(total=600, connect=60)
                         headers = {
@@ -202,7 +202,7 @@ class XiaohongshuMixin:
                             timeout=timeout
                         ) as session:
                             async with session.get(cand_url) as resp:
-                                attempt_elapsed = time_module.perf_counter() - attempt_start
+                                attempt_elapsed = time.perf_counter() - attempt_start
                                 
                                 if resp.status == 200:
                                     # 先写入临时文件，避免一次性读取导致 payload 不完整
@@ -247,7 +247,7 @@ class XiaohongshuMixin:
                                                 final_part.replace(final_output)
                                             await asyncio.to_thread(_move)
                                             
-                                            total_elapsed = time_module.perf_counter() - start_time
+                                            total_elapsed = time.perf_counter() - start_time
                                             logger.debug(
                                                 "XHS 原图下载成功 (%s): size=%.1fMB, 请求耗时=%.2fs, 总耗时=%.2fs",
                                                 desc, content_len / 1024 / 1024, attempt_elapsed, total_elapsed
@@ -272,7 +272,7 @@ class XiaohongshuMixin:
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
-                        attempt_elapsed = time_module.perf_counter() - attempt_start
+                        attempt_elapsed = time.perf_counter() - attempt_start
                         logger.debug(
                             "XHS 原图下载异常 (%s): %s, 耗时=%.2fs",
                             desc, str(e)[:50], attempt_elapsed
@@ -282,12 +282,12 @@ class XiaohongshuMixin:
                         wait_time = 0.5 * (2 ** attempt)
                         await asyncio.sleep(wait_time)
             
-            original_elapsed = time_module.perf_counter() - original_start
+            original_elapsed = time.perf_counter() - original_start
             logger.debug("XHS 原图下载全部失败，回退到普通策略，原图尝试耗时=%.2fs", original_elapsed)
         # endregion
         
         # region CDN 兜底策略
-        fallback_start = time_module.perf_counter()
+        fallback_start = time.perf_counter()
         
         # 基础 Headers
         base_headers = {
@@ -331,7 +331,7 @@ class XiaohongshuMixin:
             
             for hv in header_variants:
                 for attempt in range(retry_count + 1):
-                    attempt_start = time_module.perf_counter()
+                    attempt_start = time.perf_counter()
                     try:
                         # 超长超时
                         timeout = aiohttp.ClientTimeout(total=300, connect=30)
@@ -352,8 +352,8 @@ class XiaohongshuMixin:
                                                 temp_path.replace(output_path)
                                         await asyncio.to_thread(_save_fallback)
                                         
-                                        attempt_elapsed = time_module.perf_counter() - attempt_start
-                                        total_elapsed = time_module.perf_counter() - start_time
+                                        attempt_elapsed = time.perf_counter() - attempt_start
+                                        total_elapsed = time.perf_counter() - start_time
                                         logger.info(
                                             "XHS CDN 图片下载成功 (%s): size=%.1fKB, 请求耗时=%.2fs, 总耗时=%.2fs",
                                             desc, len(content) / 1024, attempt_elapsed, total_elapsed
@@ -372,7 +372,7 @@ class XiaohongshuMixin:
         # endregion
         
         # 全部失败
-        total_elapsed = time_module.perf_counter() - start_time
+        total_elapsed = time.perf_counter() - start_time
         error_summary = " | ".join(errors[:5])  # 只取前5个错误
         logger.error("XHS 图片下载全线失败: 总耗时=%.2fs, 错误=%s", total_elapsed, error_summary)
         raise RuntimeError(f"图片下载失败: {error_summary}")
@@ -462,8 +462,7 @@ class XiaohongshuMixin:
     async def _process_xhs(
         self, event: AstrMessageEvent, target_link: str, is_from_card: bool = False
     ):
-        import time as time_module
-        process_start = time_module.perf_counter()
+        process_start = time.perf_counter()
         timing = {}  # 记录各步骤耗时
         
         self._refresh_config()
@@ -482,7 +481,7 @@ class XiaohongshuMixin:
         logger.info("🍠 小红书解析%s: %s", source_tag, target_link)
 
         # region 解析阶段
-        parse_start = time_module.perf_counter()
+        parse_start = time.perf_counter()
         retry_count = max(0, int(getattr(self, "retry_count", 3)))
         result: XiaohongshuResult | None = None
         last_error: Exception | None = None
@@ -547,7 +546,7 @@ class XiaohongshuMixin:
             )
             return
 
-        timing["parse"] = time_module.perf_counter() - parse_start
+        timing["parse"] = time.perf_counter() - parse_start
         # endregion
 
         logger.debug(
@@ -572,7 +571,7 @@ class XiaohongshuMixin:
         failed_images = 0
 
         # region 下载阶段
-        download_start = time_module.perf_counter()
+        download_start = time.perf_counter()
         
         # 视频笔记：优先下载视频
         if result.video_url:
@@ -622,7 +621,7 @@ class XiaohongshuMixin:
                     failed_images += 1
                     logger.warning("小红书图片下载失败%s [%d/%d]: %s", source_tag, i + 1, len(image_urls), str(exc))
         
-        timing["download"] = time_module.perf_counter() - download_start
+        timing["download"] = time.perf_counter() - download_start
         # endregion
 
         if not media_components:
@@ -633,7 +632,7 @@ class XiaohongshuMixin:
             return
 
         # region 渲染阶段
-        render_start = time_module.perf_counter()
+        render_start = time.perf_counter()
         card_path = await self._render_xhs_card(
             result,
             image_paths=image_paths,
@@ -644,11 +643,11 @@ class XiaohongshuMixin:
         if card_path:
             media_paths.append(card_path)
             media_components.insert(0, Image.fromFileSystem(str(card_path.resolve())))
-        timing["render"] = time_module.perf_counter() - render_start
+        timing["render"] = time.perf_counter() - render_start
         # endregion
 
         # region 发送阶段
-        send_start = time_module.perf_counter()
+        send_start = time.perf_counter()
         
         # 计算总大小
         total_size_bytes = await asyncio.to_thread(
@@ -695,11 +694,11 @@ class XiaohongshuMixin:
                         await event.send(MessageChain([component]))
                         break
 
-        timing["send"] = time_module.perf_counter() - send_start
+        timing["send"] = time.perf_counter() - send_start
         # endregion
 
         # 输出完整耗时日志
-        total_elapsed = time_module.perf_counter() - process_start
+        total_elapsed = time.perf_counter() - process_start
         logger.info(
             "🍠 XHS 处理完成%s: 标题=%s, 媒体=%d, 失败=%d | 耗时: 解析=%.2fs, 下载=%.2fs, 渲染=%.2fs, 发送=%.2fs, 总计=%.2fs",
             source_tag,
