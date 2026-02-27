@@ -12,7 +12,6 @@ from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Image, Node, Nodes, Video
 
 from ..common import (
-    CHROME_UA,
     SizeLimitExceeded,
     get_xhs_video_path,
     get_xhs_image_path,
@@ -27,6 +26,7 @@ from . import (
     extract_xhs_links,
     load_xhs_cookies,
 )
+from .extractor import _XHS_DOWNLOAD_UA
 # endregion
 
 # region 解析策略常量
@@ -192,7 +192,7 @@ class XiaohongshuMixin:
                     try:
                         timeout = aiohttp.ClientTimeout(total=600, connect=60)
                         headers = {
-                            "User-Agent": CHROME_UA,
+                            "User-Agent": _XHS_DOWNLOAD_UA,
                             "Referer": "https://www.xiaohongshu.com/",
                         }
                         
@@ -291,7 +291,7 @@ class XiaohongshuMixin:
         
         # 基础 Headers
         base_headers = {
-            "User-Agent": CHROME_UA,
+            "User-Agent": _XHS_DOWNLOAD_UA,
         }
         
         # 构建阶梯候选列表

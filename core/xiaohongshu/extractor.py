@@ -12,7 +12,7 @@ import aiohttp
 from astrbot.api import logger
 
 # Cookie 文件路径（从 common 模块导入）
-from ..common import CHROME_UA, get_xhs_cookies_file
+from ..common import get_xhs_cookies_file
 
 
 # region 常量
@@ -24,14 +24,29 @@ XHS_MESSAGE_PATTERN = (
     + r"|(?:https?://)?(?:www\.)?xiaohongshu\.com/(?:explore|discovery/item)/[0-9a-zA-Z]+)"
 )
 
+# User-Agent
+_XHS_DESKTOP_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/55.0.2883.87 UBrowser/6.2.4098.3 Safari/537.36"
+)
+_XHS_MOBILE_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) "
+    "Version/16.6 Mobile/15E148 Safari/604.1 Edg/132.0.0.0"
+)
+_XHS_DOWNLOAD_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
 # 通用 headers
 _COMMON_HEADERS = {
-    "User-Agent": CHROME_UA,
+    "User-Agent": _XHS_DESKTOP_UA,
 }
 
 # headers (用于短链接重定向)
 XHS_HEADERS = {
-    "User-Agent": CHROME_UA,
+    "User-Agent": _XHS_MOBILE_UA,
     "origin": "https://www.xiaohongshu.com",
     "x-requested-with": "XMLHttpRequest",
     "sec-fetch-site": "same-origin",
@@ -41,7 +56,7 @@ XHS_HEADERS = {
 
 # explore 页面 headers
 _EXPLORE_HEADERS = {
-    "User-Agent": CHROME_UA,
+    "User-Agent": _XHS_DESKTOP_UA,
     "accept": (
         "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,"
         "image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"

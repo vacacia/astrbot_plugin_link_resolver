@@ -14,7 +14,7 @@ import astrbot.api.message_components as Comp
 from astrbot.api.star import Context, Star, register
 
 from .core.bilibili import BILI_MESSAGE_PATTERN, BilibiliMixin
-from .core.common import DOWNLOAD_HEADERS, SizeLimitExceeded, get_bili_cookies_file
+from .core.common import SizeLimitExceeded, get_bili_cookies_file
 from .core.douyin import DOUYIN_MESSAGE_PATTERN, DouyinExtractor
 from .core.douyin.handler import DouyinMixin
 from .core.xiaohongshu import (
@@ -31,7 +31,7 @@ TASK_NAME_PREFIX = "myparser-parse"
 # endregion
 
 # region MyParser 类
-@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.7")
+@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.8")
 class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | dict | None = None):
         super().__init__(context)
@@ -458,7 +458,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         headers: dict[str, str] | None = None,
     ) -> int | None:
         try:
-            headers = headers or DOWNLOAD_HEADERS
+            headers = headers or {}
             cookies = cookies or {}
             async with httpx.AsyncClient(timeout=10.0, headers=headers, cookies=cookies) as client:
                 response = await client.head(url, follow_redirects=True)
@@ -512,7 +512,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         last_error: Exception | None = None
         for attempt in range(retries):
             try:
-                hdrs = headers or DOWNLOAD_HEADERS
+                hdrs = headers or {}
                 cks = cookies or {}
                 async with httpx.AsyncClient(timeout=None, headers=hdrs, cookies=cks) as client:
                     async with client.stream("GET", url, follow_redirects=True) as response:

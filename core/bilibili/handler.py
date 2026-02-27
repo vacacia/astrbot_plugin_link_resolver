@@ -24,7 +24,6 @@ from bilibili_api.video import (
 )
 
 from ..common import (
-    DOWNLOAD_HEADERS,
     SizeLimitExceeded,
     get_bilibili_video_path,
     get_bilibili_thumb_path,
@@ -35,6 +34,15 @@ from ..common.card_renderer import UniversalCardRenderer, CardData, get_theme_fo
 # endregion
 
 # region 常量与正则
+_BILI_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/146.0.7680.31 Safari/537.36"
+)
+_BILI_HEADERS = {
+    "User-Agent": _BILI_UA,
+    "Referer": "https://www.bilibili.com/",
+}
 BILI_VIDEO_URL_PATTERN = (
     r"(https?://)?(?:(?:www|m)\.)?bilibili\.com/video/(BV[0-9A-Za-z]{10}|av\d+)"
 )
@@ -439,7 +447,7 @@ class BilibiliMixin:
         try:
             async with httpx.AsyncClient(
                 timeout=10.0,
-                headers=DOWNLOAD_HEADERS,
+                headers=_BILI_HEADERS,
                 cookies=cookies,
                 follow_redirects=True,
             ) as client:
@@ -626,8 +634,8 @@ class BilibiliMixin:
             temp_video_part = temp_video.with_suffix(temp_video.suffix + ".part")
             temp_audio_part = temp_audio.with_suffix(temp_audio.suffix + ".part")
             try:
-                await self._download_stream(video_url, temp_video, cookies, max_bytes)
-                await self._download_stream(audio_url, temp_audio, cookies, max_bytes)
+                await self._download_stream(video_url, temp_video, cookies, max_bytes, headers=_BILI_HEADERS)
+                await self._download_stream(audio_url, temp_audio, cookies, max_bytes, headers=_BILI_HEADERS)
                 await self._merge_av(temp_video, temp_audio, output_path)
             except asyncio.CancelledError:
                 await self._cleanup_download_artifacts(
@@ -644,7 +652,7 @@ class BilibiliMixin:
                 )
                 raise
         else:
-            await self._download_stream(video_url, output_path, cookies, max_bytes)
+            await self._download_stream(video_url, output_path, cookies, max_bytes, headers=_BILI_HEADERS)
 
         return output_path, actual_quality.name
 
@@ -761,7 +769,7 @@ class BilibiliMixin:
             return None
         try:
             cover_path = get_bilibili_card_path() / f"{bvid}_cover.jpg"
-            await self._download_stream(cover_url, cover_path, cookies=None, max_bytes=None)
+            await self._download_stream(cover_url, cover_path, cookies=None, max_bytes=None, headers=_BILI_HEADERS)
             return cover_path
         except Exception as exc:
             logger.warning("⚠️ 下载B站封面失败: %s", str(exc))

@@ -13,14 +13,20 @@ from .video import RouterData
 # endregion
 
 # region 常量
-from ..common import CHROME_UA
-
 IOS_HEADERS = {
-    "User-Agent": CHROME_UA,
+    "User-Agent": (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+        "Mobile/15E148 Safari/604.1 Edg/132.0.0.0"
+    )
 }
 
 ANDROID_HEADERS = {
-    "User-Agent": CHROME_UA,
+    "User-Agent": (
+        "Mozilla/5.0 (Linux; Android 15; SM-G998B) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36 "
+        "Edg/132.0.0.0"
+    )
 }
 # endregion
 
