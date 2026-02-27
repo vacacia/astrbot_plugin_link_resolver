@@ -11,6 +11,7 @@ from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Image, Node, Nodes, Video
 
 from ..common import (
+    CHROME_UA,
     SizeLimitExceeded,
     get_xhs_video_path,
     get_xhs_image_path,
@@ -213,7 +214,7 @@ class XiaohongshuMixin:
                     try:
                         timeout = aiohttp.ClientTimeout(total=600, connect=60)
                         headers = {
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            "User-Agent": CHROME_UA,
                             "Referer": "https://www.xiaohongshu.com/",
                         }
                         
@@ -312,7 +313,7 @@ class XiaohongshuMixin:
         
         # 基础 Headers
         base_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": CHROME_UA,
         }
         
         # 构建阶梯候选列表

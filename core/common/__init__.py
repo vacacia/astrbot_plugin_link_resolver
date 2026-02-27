@@ -1,5 +1,6 @@
 # region 公共模块导出
 __all__ = [
+    "CHROME_UA",
     "DOWNLOAD_HEADERS",
     "PLUGIN_NAME",
     "SizeLimitExceeded",
@@ -20,7 +21,7 @@ __all__ = [
 ]
 
 from .exceptions import SizeLimitExceeded
-from .http import DOWNLOAD_HEADERS
+from .http import CHROME_UA, DOWNLOAD_HEADERS
 from .paths import (
     PLUGIN_NAME,
     # 路径获取函数
