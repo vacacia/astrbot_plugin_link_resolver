@@ -48,21 +48,23 @@ class VideoData(Struct):
 
     @property
     def image_urls(self) -> list[str]:
-        return [choice(image.url_list) for image in self.images] if self.images else []
+        return [choice(image.url_list) for image in self.images if image.url_list] if self.images else []
 
     @property
     def video_url(self) -> str | None:
-        return choice(self.video.play_addr.url_list).replace("playwm", "play") if self.video else None
+        if self.video and self.video.play_addr.url_list:
+            return choice(self.video.play_addr.url_list).replace("playwm", "play")
+        return None
 
     @property
     def cover_url(self) -> str | None:
-        return choice(self.video.cover.url_list) if self.video else None
+        return choice(self.video.cover.url_list) if self.video and self.video.cover.url_list else None
 
     @property
     def avatar_url(self) -> str | None:
-        if avatar := self.author.avatar_thumb:
+        if (avatar := self.author.avatar_thumb) and avatar.url_list:
             return choice(avatar.url_list)
-        if avatar := self.author.avatar_medium:
+        if (avatar := self.author.avatar_medium) and avatar.url_list:
             return choice(avatar.url_list)
         return None
 

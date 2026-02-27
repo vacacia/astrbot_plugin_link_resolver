@@ -45,16 +45,16 @@ class SlidesData(Struct):
         return self.author.nickname
 
     @property
-    def avatar_url(self) -> str:
-        return choice(self.author.avatar_thumb.url_list)
+    def avatar_url(self) -> str | None:
+        return choice(self.author.avatar_thumb.url_list) if self.author.avatar_thumb.url_list else None
 
     @property
     def image_urls(self) -> list[str]:
-        return [choice(image.url_list) for image in self.images]
+        return [choice(image.url_list) for image in self.images if image.url_list]
 
     @property
     def dynamic_urls(self) -> list[str]:
-        return [choice(image.video.play_addr.url_list) for image in self.images if image.video]
+        return [choice(image.video.play_addr.url_list) for image in self.images if image.video and image.video.play_addr.url_list]
 
 
 class SlidesInfo(Struct):

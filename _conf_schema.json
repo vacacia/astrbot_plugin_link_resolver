@@ -149,14 +149,6 @@
         "min": 0,
         "max": 1000
     },
-    "auto_cleanup_delay": {
-        "description": "视频自动清理延迟 (秒)",
-        "type": "int",
-        "hint": "视频发送后自动删除的延迟时间（秒）。",
-        "default": 60,
-        "min": 10,
-        "max": 3600
-    },
     "merge_send_as_sender": {
         "description": "合并转发显示为发送者",
         "type": "bool",

@@ -1,6 +1,7 @@
 # region 导入
 import asyncio
 import re
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -36,13 +37,13 @@ XHS_PARSE_RETRY_MAX_DELAY_SEC = 8.0
 # region 小红书混入
 class XiaohongshuMixin:
     # region 路径与候选构建
-    def _build_xhs_path(self, url: str, is_video: bool) -> Path:
+    def _build_xhs_path(self, url: str, is_video: bool, request_id: str) -> Path:
         suffix = ".mp4" if is_video else self._guess_media_suffix(url, ".jpg")
         base_dir = get_xhs_video_path() if is_video else get_xhs_image_path()
-        return base_dir / f"{self._hash_url(url)}{suffix}"
+        return base_dir / f"{self._hash_url(url)}_{request_id}{suffix}"
 
-    def _build_xhs_card_path(self, source_url: str) -> Path:
-        return get_xhs_card_path() / f"{self._hash_url(source_url)}_card.png"
+    def _build_xhs_card_path(self, source_url: str, request_id: str) -> Path:
+        return get_xhs_card_path() / f"{self._hash_url(source_url)}_{request_id}_card.png"
 
     @staticmethod
     def _force_https(url: str) -> str:
@@ -118,7 +119,7 @@ class XiaohongshuMixin:
         )
         return any(p in text for p in retryable_patterns)
 
-    async def _download_xhs_video(self, url: str, referer: str | None = None) -> Path:
+    async def _download_xhs_video(self, url: str, request_id: str, referer: str | None = None) -> Path:
         max_bytes = self.max_video_size_mb * 1024 * 1024 if self.max_video_size_mb > 0 else None
         cookies = self._get_xhs_cookies()
         size_mb = await self._estimate_total_size_mb(
@@ -130,7 +131,7 @@ class XiaohongshuMixin:
         )
         if size_mb is not None and max_bytes and size_mb * 1024 * 1024 > max_bytes:
             raise SizeLimitExceeded("超过大小限制")
-        output_path = self._build_xhs_path(url, is_video=True)
+        output_path = self._build_xhs_path(url, is_video=True, request_id=request_id)
         await self._download_stream(
             url,
             output_path,
@@ -142,8 +143,9 @@ class XiaohongshuMixin:
         return output_path
 
     async def _download_xhs_image(
-        self, 
-        url: str, 
+        self,
+        url: str,
+        request_id: str,
         file_id: str | None = None,
         referer: str | None = None
     ) -> Path:
@@ -156,7 +158,7 @@ class XiaohongshuMixin:
         import time as time_module
         start_time = time_module.perf_counter()
         
-        output_path = self._build_xhs_path(url, is_video=False)
+        output_path = self._build_xhs_path(url, is_video=False, request_id=request_id)
         cookies = self._get_xhs_cookies()
         
         # 提取 image token (参考 XHS-Downloader)
@@ -455,9 +457,10 @@ class XiaohongshuMixin:
         image_paths: list[Path],
         cover_path: Path | None,
         is_video: bool,
+        request_id: str,
     ) -> Path | None:
         try:
-            card_path = self._build_xhs_card_path(result.source_url)
+            card_path = self._build_xhs_card_path(result.source_url, request_id)
             image = await asyncio.to_thread(
                 self.xhs_renderer.render,
                 title=result.title,
@@ -488,6 +491,7 @@ class XiaohongshuMixin:
         if not self.xhs_enabled:
             return
         source_tag = "(来自卡片)" if is_from_card else ""
+        request_id = uuid.uuid4().hex[:8]
         
         # 尝试增加 aiocqhttp 超时时间（原图文件较大，需要更长时间上传）
         self._try_extend_aiocqhttp_timeout(event, getattr(self, 'api_timeout_sec', 600))
@@ -598,7 +602,7 @@ class XiaohongshuMixin:
         if result.video_url:
             try:
                 video_path = await self._download_xhs_video(
-                    result.video_url, referer=result.source_url
+                    result.video_url, request_id, referer=result.source_url
                 )
                 media_paths.append(video_path)
                 media_components.append(Video.fromFileSystem(str(video_path.resolve())))
@@ -607,7 +611,7 @@ class XiaohongshuMixin:
                 if cover_url:
                     try:
                         cover_path = await self._download_xhs_image(
-                            cover_url, referer=result.source_url
+                            cover_url, request_id, referer=result.source_url
                         )
                         media_paths.append(cover_path)
                     except asyncio.CancelledError:
@@ -631,7 +635,7 @@ class XiaohongshuMixin:
                     # 获取对应的 file_id（如果有）
                     file_id = file_ids[i] if i < len(file_ids) else None
                     image_path = await self._download_xhs_image(
-                        url, file_id=file_id, referer=result.source_url
+                        url, request_id, file_id=file_id, referer=result.source_url
                     )
                     image_paths.append(image_path)
                     media_paths.append(image_path)
@@ -659,6 +663,7 @@ class XiaohongshuMixin:
             image_paths=image_paths,
             cover_path=cover_path,
             is_video=bool(result.video_url and not image_paths),
+            request_id=request_id,
         )
         if card_path:
             media_paths.append(card_path)
@@ -670,7 +675,9 @@ class XiaohongshuMixin:
         send_start = time_module.perf_counter()
         
         # 计算总大小
-        total_size_bytes = sum(p.stat().st_size for p in media_paths if p.exists())
+        total_size_bytes = await asyncio.to_thread(
+            lambda: sum(p.stat().st_size for p in media_paths if p.exists())
+        )
         total_size_mb = total_size_bytes / (1024 * 1024)
         
         # 判断是否触发解合阈值

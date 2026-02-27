@@ -899,7 +899,7 @@ class BilibiliMixin:
             pages = info.get("pages") or []
             page_count = len(pages) if pages else 1
             page_index = min(ref.page_index, max(page_count - 1, 0))
-            has_page_param = bool(ref.source_url and re.search(r"[?&]p=\\d+", ref.source_url))
+            has_page_param = bool(ref.source_url and re.search(r"[?&]p=\d+", ref.source_url))
             is_multi_page = page_count > 1 and self.enable_multi_page and not has_page_param
             page_indexes = [page_index]
             if is_multi_page:

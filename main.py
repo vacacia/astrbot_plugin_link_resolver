@@ -32,7 +32,7 @@ ACTIVE_PARSE_TASKS: set[asyncio.Task] = set()
 # endregion
 
 # region MyParser 类
-@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.4")
+@register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.5")
 class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | dict | None = None):
         super().__init__(context)
@@ -106,7 +106,6 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.reaction_emoji_id = self._coerce_positive_int(self._get_config_value("reaction_emoji_id", 128169), 128169)
         self.reaction_emoji_type = "1"  # 固定值，无需配置
         self.max_video_size_mb = int(self._get_config_value("max_video_size_mb", 200))
-        self.cleanup_delay = int(self._get_config_value("auto_cleanup_delay", 60))
         self.merge_send_as_sender = bool(self._get_config_value("merge_send_as_sender", False))
 
         alias = self._normalize_quality_alias(self.quality_label)
@@ -603,12 +602,12 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         # Direct Send Pattern: 调用此方法时，文件已通过 await event.send() 被读取完毕
         # 无需延迟，立即清理以避免与后续相同 URL 请求产生竞态条件
         for video_path in video_paths:
-            existed = video_path.exists()
-            video_path.unlink(missing_ok=True)
+            existed = await asyncio.to_thread(video_path.exists)
+            await asyncio.to_thread(video_path.unlink, missing_ok=True)
             logger.debug("🧹 清理视频文件: path=%s, existed=%s", video_path, existed)
         for thumb_path in thumbnail_paths:
-            existed = thumb_path.exists()
-            thumb_path.unlink(missing_ok=True)
+            existed = await asyncio.to_thread(thumb_path.exists)
+            await asyncio.to_thread(thumb_path.unlink, missing_ok=True)
             logger.debug("🧹 清理缩略图文件: path=%s, existed=%s", thumb_path, existed)
     # endregion
 
@@ -654,8 +653,6 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     async def handle_json_card(self, event: AstrMessageEvent):
         if self._is_self_message(event):
             return
-        if await self._is_bot_muted(event):
-            return
 
         links: list[str] = []
         has_json_component = False
@@ -682,6 +679,9 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                     logger.info("🎴 检测到 JSON 卡片消息: %s", component)
                     links.extend(self.extract_links_from_json(comp_payload))
         if not has_json_component:
+            return
+
+        if await self._is_bot_muted(event):
             return
 
         if not links:

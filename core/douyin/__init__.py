@@ -207,7 +207,7 @@ class DouyinExtractor:
     @staticmethod
     def _build_m_douyin_url(ty: str, vid: str) -> str:
         return f"https://m.douyin.com/share/{ty}/{vid}"
-
+    # region parse video
     async def parse_video(self, url: str, source_url: str) -> DouyinResult:
         pattern = re.compile(
             r"window\._ROUTER_DATA\s*=\s*(.*?)</script>",
@@ -323,7 +323,7 @@ class DouyinExtractor:
             comments=comments,
             item_id=video_id,
         )
-
+    # region parse slides
     async def parse_slides(self, video_id: str, source_url: str) -> DouyinResult:
         url = "https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
         params = {
