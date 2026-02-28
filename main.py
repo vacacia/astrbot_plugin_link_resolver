@@ -37,7 +37,6 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         super().__init__(context)
         self.context = context
         self.config = config or context.get_config()
-        self._migrate_legacy_config()
         # 注意：必须在 _active_parse_tasks 初始化之前调用；
         # 该方法通过 asyncio.all_tasks() 扫描清理旧任务，不依赖实例任务池。
         self._cancel_previous_parse_tasks()
@@ -48,53 +47,6 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self._refresh_config()
 
     # region 配置
-    # 旧 flat key → (分组, 子key) 的映射，用于一次性迁移旧版配置
-    _LEGACY_KEY_MAP: dict[str, tuple[str, str]] = {
-        "bili_video_quality": ("bili_settings", "video_quality"),
-        "bili_video_codecs": ("bili_settings", "video_codecs"),
-        "bili_allow_hdr": ("bili_settings", "allow_hdr"),
-        "bili_allow_dolby": ("bili_settings", "allow_dolby"),
-        "bili_merge_send": ("bili_settings", "merge_send"),
-        "bili_enable_multi_page": ("bili_settings", "enable_multi_page"),
-        "bili_multi_page_max": ("bili_settings", "multi_page_max"),
-        "bili_max_duration_seconds": ("bili_settings", "max_duration_seconds"),
-        "bili_allow_quality_fallback": ("bili_settings", "allow_quality_fallback"),
-        "bili_cookies": ("bili_settings", "cookies"),
-        "douyin_max_media": ("douyin_settings", "max_media"),
-        "douyin_merge_send": ("douyin_settings", "merge_send"),
-        "xhs_max_media": ("xhs_settings", "max_media"),
-        "xhs_merge_send": ("xhs_settings", "merge_send"),
-        "xhs_download_original": ("xhs_settings", "download_original"),
-        "xhs_prefer_ci_png": ("xhs_settings", "prefer_ci_png"),
-        "xhs_auto_unmerge_threshold_mb": ("xhs_settings", "auto_unmerge_threshold_mb"),
-        "xhs_concurrent_download": ("xhs_settings", "concurrent_download"),
-        "retry_count": ("general_settings", "retry_count"),
-        "reaction_emoji_enabled": ("general_settings", "reaction_emoji_enabled"),
-        "reaction_emoji_id": ("general_settings", "reaction_emoji_id"),
-        "max_video_size_mb": ("general_settings", "max_video_size_mb"),
-        "merge_send_as_sender": ("general_settings", "merge_send_as_sender"),
-        "error_notify_mode": ("general_settings", "error_notify_mode"),
-    }
-
-    def _migrate_legacy_config(self) -> None:
-        """将旧版 flat 配置迁移到嵌套结构，保证面板显示与实际生效一致。"""
-        if not isinstance(self.config, dict):
-            return
-        migrated = False
-        for old_key, (group, sub_key) in self._LEGACY_KEY_MAP.items():
-            if old_key not in self.config:
-                continue
-            if group not in self.config or not isinstance(self.config[group], dict):
-                self.config[group] = {}
-            # 仅在新位置尚无值时迁移
-            if sub_key not in self.config[group]:
-                self.config[group][sub_key] = self.config[old_key]
-            del self.config[old_key]
-            migrated = True
-        if migrated and hasattr(self.config, "save_config"):
-            self.config.save_config()
-            logger.info("📦 已将旧版配置迁移到分组结构")
-
     def _get_config_value(self, key: str, default):
         keys = key.split(".")
         val = self.config
