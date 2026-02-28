@@ -91,7 +91,7 @@
                 "description": "抖音视频合并发送",
                 "type": "bool",
                 "hint": "仅对视频生效。开启时发送卡片+视频的合并转发；关闭时只发送单独视频。图文笔记始终使用合并转发（卡片+图片）。",
-                "default": true
+                "default": false
             }
         }
     },
@@ -111,7 +111,7 @@
                 "description": "小红书视频合并发送",
                 "type": "bool",
                 "hint": "仅对视频笔记生效。开启时发送卡片+视频的合并转发；关闭时只发送单独视频。图文笔记始终使用合并转发（卡片+图片）。",
-                "default": true
+                "default": false
             },
             "download_original": {
                 "description": "下载小红书原图",

@@ -105,7 +105,7 @@ class LinkResolver(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         
         # 小红书配置
         self.xhs_max_media = max(1, int(self._get_config_value("xhs_settings.max_media", 99)))
-        self.xhs_merge_send = bool(self._get_config_value("xhs_settings.merge_send", True))
+        self.xhs_merge_send = bool(self._get_config_value("xhs_settings.merge_send", False))
         self.xhs_download_original = bool(self._get_config_value("xhs_settings.download_original", True))
         self.xhs_prefer_ci_png = bool(self._get_config_value("xhs_settings.prefer_ci_png", False))
         self.xhs_auto_unmerge_threshold_mb = int(self._get_config_value("xhs_settings.auto_unmerge_threshold_mb", 50))

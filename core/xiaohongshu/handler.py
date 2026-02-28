@@ -104,6 +104,7 @@ class XiaohongshuMixin:
         await self._download_stream(
             url,
             output_path,
+            cookies=None,
             max_bytes=max_bytes,
             headers=self._xhs_download_headers(referer),
             retries=3,
