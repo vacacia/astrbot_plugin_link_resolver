@@ -53,7 +53,6 @@
 | `xhs_max_media` | 图集最多发送媒体数 | 99 |
 | `xhs_merge_send` | 视频使用合并转发 | ✅ 开启 |
 | `xhs_download_original` | 下载原图 (PNG/JPEG) | ✅ 开启 |
-| `xhs_use_cookies` | 使用自定义 Cookies | ❌ 关闭 |
 | `xhs_auto_unmerge_threshold_mb` | 图片总大小超过此值时停止合并转发 (MB) | 50 |
 
 

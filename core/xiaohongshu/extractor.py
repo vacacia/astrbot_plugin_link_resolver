@@ -4,15 +4,11 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
-from http import cookiejar
 from pathlib import Path
 from typing import Any
 
 import aiohttp
 from astrbot.api import logger
-
-# Cookie 文件路径（从 common 模块导入）
-from ..common import get_xhs_cookies_file
 
 
 # region 常量
@@ -118,47 +114,14 @@ class XiaohongshuRetryableError(XiaohongshuParseError):
 # endregion
 
 
-def load_xhs_cookies() -> dict[str, str]:
-    """加载小红书 cookies（支持 JSON 格式或 Netscape cookies.txt 格式）"""
-    cookies_file = get_xhs_cookies_file()
-    if not cookies_file.exists():
-        return {}
-    try:
-        raw = cookies_file.read_text(encoding="utf-8").strip()
-        if not raw:
-            return {}
-        # 尝试 JSON 格式
-        if raw.lstrip().startswith("{"):
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                cookies = {str(k): str(v) for k, v in data.items()}
-                logger.info("🍪 小红书 cookies 加载成功 (JSON): %d 个", len(cookies))
-                return cookies
-    except Exception:
-        pass
-
-    # 尝试 Netscape cookies.txt 格式
-    try:
-        jar = cookiejar.MozillaCookieJar()
-        jar.load(str(get_xhs_cookies_file()), ignore_discard=True, ignore_expires=True)
-        cookies = {cookie.name: cookie.value for cookie in jar}
-        logger.info("🍪 小红书 cookies 加载成功 (Netscape): %d 个", len(cookies))
-        return cookies
-    except Exception as exc:
-        logger.warning("⚠️ 小红书 cookies 加载失败: %s", str(exc))
-        return {}
-
-
 class XiaohongshuExtractor:
     """小红书内容提取器"""
 
     def __init__(
         self,
         timeout: float = XHS_REQUEST_TIMEOUT_SEC,
-        cookies: dict[str, str] | None = None,
     ):
         self.timeout = aiohttp.ClientTimeout(total=timeout)
-        self.cookies = cookies or load_xhs_cookies()
 
     async def parse(self, text_or_url: str) -> XiaohongshuResult:
         """解析小红书链接"""
@@ -200,7 +163,7 @@ class XiaohongshuExtractor:
     async def _get_redirect_url(self, url: str) -> str:
         """获取短链接重定向目标（单次重定向）"""
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
+            async with aiohttp.ClientSession(timeout=self.timeout, cookies=None) as session:
                 async with session.get(url, headers=XHS_HEADERS, allow_redirects=False) as resp:
                     if resp.status in (429,) or resp.status >= 500:
                         raise XiaohongshuRetryableError(f"短链接请求临时失败: {resp.status}")
@@ -218,7 +181,7 @@ class XiaohongshuExtractor:
     async def _parse_explore(self, url: str, note_id: str) -> XiaohongshuResult:
         """解析 explore 页面"""
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
+            async with aiohttp.ClientSession(timeout=self.timeout, cookies=None) as session:
                 async with session.get(url, headers=_EXPLORE_HEADERS) as resp:
                     logger.debug("XHS explore url: %s, status: %s", resp.url, resp.status)
                     if resp.status in (429,) or resp.status >= 500:
@@ -250,7 +213,7 @@ class XiaohongshuExtractor:
     async def _parse_discovery(self, url: str) -> XiaohongshuResult:
         """解析 discovery 页面"""
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout, cookies=self.cookies) as session:
+            async with aiohttp.ClientSession(timeout=self.timeout, cookies=None) as session:
                 async with session.get(url, headers=XHS_HEADERS, allow_redirects=True) as resp:
                     logger.debug("XHS discovery url: %s, status: %s", resp.url, resp.status)
                     if resp.status in (429,) or resp.status >= 500:
@@ -467,5 +430,4 @@ __all__ = [
     "XiaohongshuRetryableError",
     "XiaohongshuResult",
     "extract_xhs_links",
-    "load_xhs_cookies",
 ]

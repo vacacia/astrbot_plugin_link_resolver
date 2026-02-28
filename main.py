@@ -98,8 +98,9 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.xhs_max_media = max(1, int(self._get_config_value("xhs_max_media", 99)))
         self.xhs_merge_send = bool(self._get_config_value("xhs_merge_send", True))
         self.xhs_download_original = bool(self._get_config_value("xhs_download_original", True))
-        self.xhs_use_cookies = bool(self._get_config_value("xhs_use_cookies", False))
+        self.xhs_prefer_ci_png = bool(self._get_config_value("xhs_prefer_ci_png", False))
         self.xhs_auto_unmerge_threshold_mb = int(self._get_config_value("xhs_auto_unmerge_threshold_mb", 50))
+        self.xhs_concurrent_download = bool(self._get_config_value("xhs_concurrent_download", True))
         
         # 通用配置
         self.retry_count = max(0, int(self._get_config_value("retry_count", 3)))

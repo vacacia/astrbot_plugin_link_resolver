@@ -8,7 +8,6 @@ from .extractor import (
     XiaohongshuRetryableError,
     XiaohongshuResult,
     extract_xhs_links,
-    load_xhs_cookies,
 )
 from .render import XiaohongshuCardRenderer, find_default_font
 
@@ -23,6 +22,5 @@ __all__ = [
     "XiaohongshuCardRenderer",
     "extract_xhs_links",
     "find_default_font",
-    "load_xhs_cookies",
 ]
 # endregion

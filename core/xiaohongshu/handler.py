@@ -24,7 +24,6 @@ from . import (
     XiaohongshuRetryableError,
     XiaohongshuResult,
     extract_xhs_links,
-    load_xhs_cookies,
 )
 from .extractor import _XHS_DOWNLOAD_UA
 # endregion
@@ -69,15 +68,6 @@ class XiaohongshuMixin:
         headers["Accept-Language"] = "zh-CN,zh;q=0.9"
         return headers
 
-    def _get_xhs_cookies(self) -> dict[str, str]:
-        """获取小红书 cookies（根据配置决定是否使用）"""
-        # 检查配置是否启用 cookies
-        if not getattr(self, 'xhs_use_cookies', False):
-            return {}
-        if not hasattr(self, "_xhs_cookies_cache"):
-            self._xhs_cookies_cache = load_xhs_cookies()
-        return self._xhs_cookies_cache
-
     @staticmethod
     def _is_retryable_xhs_exception(exc: Exception) -> bool:
         if isinstance(exc, (asyncio.TimeoutError, XiaohongshuRetryableError)):
@@ -101,9 +91,8 @@ class XiaohongshuMixin:
 
     async def _download_xhs_video(self, url: str, request_id: str, referer: str | None = None) -> Path:
         max_bytes = self.max_video_size_mb * 1024 * 1024 if self.max_video_size_mb > 0 else None
-        cookies = self._get_xhs_cookies()
         size_mb = await self._estimate_total_size_mb(
-            url, None, headers=self._xhs_download_headers(referer), cookies=cookies
+            url, None, headers=self._xhs_download_headers(referer)
         )
         logger.debug(
             "📹 估算小红书视频大小: %s MB",
@@ -115,7 +104,6 @@ class XiaohongshuMixin:
         await self._download_stream(
             url,
             output_path,
-            cookies=cookies,
             max_bytes=max_bytes,
             headers=self._xhs_download_headers(referer),
             retries=3,
@@ -129,17 +117,16 @@ class XiaohongshuMixin:
         file_id: str | None = None,
         referer: str | None = None
     ) -> Path:
-        """下载图片 - 三级回退策略
-        
-        1. 如果开启原图下载：尝试 PNG 原图 (ci.xiaohongshu.com)
-        2. 如果 PNG 失败：尝试 JPEG 原图
-        3. 如果都失败：回退到多 CDN 兜底策略
+        """下载图片 - 两级回退策略
+
+        1. 如果开启原图下载：按配置顺序尝试 CDN 原图 / CI-PNG 转码
+           （xhs_prefer_ci_png=True 时 CI-PNG 优先，否则 CDN 优先）
+        2. 如果都失败：回退到多 CDN 兜底策略
         """
         start_time = time.perf_counter()
         
         output_path = self._build_xhs_path(url, is_video=False, request_id=request_id)
-        cookies = self._get_xhs_cookies()
-        
+
         # 提取 image token (参考 XHS-Downloader)
         token = self._extract_image_token(url)
         logger.debug("XHS 图片下载开始: url=%s, file_id=%s, token=%s", url[:80], file_id, token)
@@ -149,38 +136,37 @@ class XiaohongshuMixin:
             original_start = time.perf_counter()
             
             # 构建原图 URL 候选列表
-            # 策略：优先 imageView2/format/png 获取无损 PNG 原图（XHS-Downloader 默认模式）
-            #       PNG 失败后再尝试直接 CDN（auto 模式，可能返回压缩的 JPEG/WebP）
             original_candidates = []
-            
-            # 1. imageView2 格式转换 - PNG 优先（XHS-Downloader 默认使用 png 格式）
-            #    ci.xiaohongshu.com 会将图片转换为指定格式，PNG 通常是无损的最大尺寸
-            original_candidates.append({
-                "url": f"https://ci.xiaohongshu.com/{token}?imageView2/format/png",
-                "desc": "CI-PNG-原图",
-                "format": "png",
-            })
-            
-            # 2. 直接 CDN 链接 - auto 模式（可能返回压缩的 JPEG/WebP）
+
+            # CDN 直接链接 - 返回小红书存储的原始文件（通常为 JPEG）
             cdn_domains = [
-                "sns-img-bd.xhscdn.com",  # XHS-Downloader 的 auto 模式使用
+                "sns-img-bd.xhscdn.com",
                 "sns-img-qc.xhscdn.com",
                 "sns-img-hw.xhscdn.com",
             ]
-            for domain in cdn_domains:
-                original_candidates.append({
+            cdn_candidates = [
+                {
                     "url": f"https://{domain}/{token}",
                     "desc": f"CDN-{domain.split('-')[2].split('.')[0]}-auto",
-                    "format": None,  # 保持原始格式（可能是压缩格式）
-                })
-            
-            # 3. 其他格式作为最后备选
-            original_candidates.append({
-                "url": f"https://ci.xiaohongshu.com/{token}?imageView2/format/jpeg",
-                "desc": "CI-JPEG",
-                "format": "jpeg",
-            })
-            
+                    "format": None,
+                }
+                for domain in cdn_domains
+            ]
+
+            # CI 转码链接 - 通过腾讯云 CI 将图片转为 PNG（体积约为原图 2 倍，画质一致）
+            ci_candidates = [
+                {
+                    "url": f"https://ci.xiaohongshu.com/{token}?imageView2/format/png",
+                    "desc": "CI-PNG-原图",
+                    "format": "png",
+                },
+            ]
+
+            if getattr(self, 'xhs_prefer_ci_png', False):
+                original_candidates = ci_candidates + cdn_candidates
+            else:
+                original_candidates = cdn_candidates + ci_candidates
+
             retry_count = max(0, int(getattr(self, "retry_count", 3)))
             for cand in original_candidates:
                 cand_url = cand["url"]
@@ -198,7 +184,6 @@ class XiaohongshuMixin:
                         
                         async with aiohttp.ClientSession(
                             headers=headers,
-                            cookies=cookies if cookies else None,
                             timeout=timeout
                         ) as session:
                             async with session.get(cand_url) as resp:
@@ -299,28 +284,26 @@ class XiaohongshuMixin:
         
         # 1. 原始 URL (带签名)
         raw_url = url.replace("http://", "https://", 1) if url.startswith("http://") else url
-        candidates.append({"url": raw_url, "use_cookies": False, "desc": "Raw-NoCookie"})
-        candidates.append({"url": raw_url, "use_cookies": True, "desc": "Raw-WithCookie"})
+        candidates.append({"url": raw_url, "desc": "Raw"})
 
         effective_id = file_id or token
         if effective_id:
             # 2. 无签名通用 CDN (兜底方案)
             domains = [
                 "sns-img-bd.xhscdn.com",
-                "sns-img-qc.xhscdn.com", 
-                "sns-img-hw.xhscdn.com", 
+                "sns-img-qc.xhscdn.com",
+                "sns-img-hw.xhscdn.com",
                 "sns-webpic-qc.xhscdn.com",
             ]
             for domain in domains:
                 for path_prefix in ["", "spectrum/"]:
                     path = f"{path_prefix}{effective_id}"
-                    candidates.append({"url": f"https://{domain}/{path}", "use_cookies": False, "desc": f"CDN-{domain.split('.')[0]}"})
-        
+                    candidates.append({"url": f"https://{domain}/{path}", "desc": f"CDN-{domain.split('.')[0]}"})
+
         errors = []
         retry_count = max(0, int(getattr(self, "retry_count", 3)))
         for cand in candidates:
             cand_url = cand["url"]
-            use_cookies_flag = cand["use_cookies"]
             desc = cand["desc"]
             
             # 两种 header 变体
@@ -336,8 +319,7 @@ class XiaohongshuMixin:
                         # 超长超时
                         timeout = aiohttp.ClientTimeout(total=300, connect=30)
                         async with aiohttp.ClientSession(
-                            headers=hv, 
-                            cookies=cookies if use_cookies_flag else None,
+                            headers=hv,
                             timeout=timeout
                         ) as session:
                             async with session.get(cand_url) as resp:
@@ -632,21 +614,48 @@ class XiaohongshuMixin:
         elif result.image_urls:
             image_urls = result.image_urls[: self.xhs_max_media]
             file_ids = result.file_ids[: self.xhs_max_media] if result.file_ids else []
-            for i, url in enumerate(image_urls):
-                try:
-                    # 获取对应的 file_id（如果有）
+            if getattr(self, "xhs_concurrent_download", False):
+                # 并发下载
+                async def _download_one(i: int, url: str) -> tuple[int, Path | None, Exception | None]:
                     file_id = file_ids[i] if i < len(file_ids) else None
-                    image_path = await self._download_xhs_image(
-                        url, request_id, file_id=file_id, referer=result.source_url
-                    )
-                    image_paths.append(image_path)
-                    media_paths.append(image_path)
-                    media_components.append(Image.fromFileSystem(str(image_path.resolve())))
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    failed_images += 1
-                    logger.warning("⚠️ 小红书图片下载失败%s [%d/%d]: %s", source_tag, i + 1, len(image_urls), str(exc))
+                    try:
+                        path = await self._download_xhs_image(
+                            url, request_id, file_id=file_id, referer=result.source_url
+                        )
+                        return (i, path, None)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        return (i, None, exc)
+
+                dl_results = await asyncio.gather(
+                    *[_download_one(i, url) for i, url in enumerate(image_urls)]
+                )
+                # 按原始顺序组装结果
+                for i, path, exc in dl_results:
+                    if path is not None:
+                        image_paths.append(path)
+                        media_paths.append(path)
+                        media_components.append(Image.fromFileSystem(str(path.resolve())))
+                    else:
+                        failed_images += 1
+                        logger.warning("⚠️ 小红书图片下载失败%s [%d/%d]: %s", source_tag, i + 1, len(image_urls), str(exc))
+            else:
+                # 串行下载
+                for i, url in enumerate(image_urls):
+                    try:
+                        file_id = file_ids[i] if i < len(file_ids) else None
+                        image_path = await self._download_xhs_image(
+                            url, request_id, file_id=file_id, referer=result.source_url
+                        )
+                        image_paths.append(image_path)
+                        media_paths.append(image_path)
+                        media_components.append(Image.fromFileSystem(str(image_path.resolve())))
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        failed_images += 1
+                        logger.warning("⚠️ 小红书图片下载失败%s [%d/%d]: %s", source_tag, i + 1, len(image_urls), str(exc))
         
         timing["download"] = time.perf_counter() - download_start
         # endregion
