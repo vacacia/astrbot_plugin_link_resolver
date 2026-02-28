@@ -48,7 +48,16 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
 
     # region 配置
     def _get_config_value(self, key: str, default):
-        return self.config.get(key, default)
+        keys = key.split(".")
+        val = self.config
+        for k in keys:
+            if isinstance(val, dict):
+                val = val.get(k)
+            else:
+                return default
+            if val is None:
+                return default
+        return val
 
     def _refresh_config(self) -> None:
         # 平台启用列表
@@ -60,19 +69,19 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self.xhs_enabled = "小红书" in enable_platforms
         
         # B站配置
-        self.quality_label = str(self._get_config_value("bili_video_quality", "720P"))
-        self.codecs_label = str(self._get_config_value("bili_video_codecs", "AVC"))
-        self.allow_hdr = bool(self._get_config_value("bili_allow_hdr", False))
-        self.allow_dolby = bool(self._get_config_value("bili_allow_dolby", False))
-        self.bili_merge_send = bool(self._get_config_value("bili_merge_send", False))
-        self.enable_multi_page = bool(self._get_config_value("bili_enable_multi_page", True))
-        self.multi_page_max = max(1, int(self._get_config_value("bili_multi_page_max", 3)))
+        self.quality_label = str(self._get_config_value("bili_settings.video_quality", "720P"))
+        self.codecs_label = str(self._get_config_value("bili_settings.video_codecs", "AVC"))
+        self.allow_hdr = bool(self._get_config_value("bili_settings.allow_hdr", False))
+        self.allow_dolby = bool(self._get_config_value("bili_settings.allow_dolby", False))
+        self.bili_merge_send = bool(self._get_config_value("bili_settings.merge_send", False))
+        self.enable_multi_page = bool(self._get_config_value("bili_settings.enable_multi_page", True))
+        self.multi_page_max = max(1, int(self._get_config_value("bili_settings.multi_page_max", 3)))
         self.bili_max_duration_seconds = max(
-            0, int(self._get_config_value("bili_max_duration_seconds", 300))
+            0, int(self._get_config_value("bili_settings.max_duration_seconds", 300))
         )
-        self.allow_quality_fallback = bool(self._get_config_value("bili_allow_quality_fallback", True))
+        self.allow_quality_fallback = bool(self._get_config_value("bili_settings.allow_quality_fallback", True))
         # 从配置读取 Cookie 并写入文件
-        bili_cookies_str = str(self._get_config_value("bili_cookies", "")).strip()
+        bili_cookies_str = str(self._get_config_value("bili_settings.cookies", "")).strip()
         if bili_cookies_str:
             try:
                 cookies_file = get_bili_cookies_file()
@@ -91,25 +100,25 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
                 logger.warning("⚠️ 写入 B站 Cookie 文件失败: %s", str(exc))
         
         # 抖音配置
-        self.douyin_max_media = max(1, int(self._get_config_value("douyin_max_media", 9)))
-        self.douyin_merge_send = bool(self._get_config_value("douyin_merge_send", True))
+        self.douyin_max_media = max(1, int(self._get_config_value("douyin_settings.max_media", 9)))
+        self.douyin_merge_send = bool(self._get_config_value("douyin_settings.merge_send", True))
         
         # 小红书配置
-        self.xhs_max_media = max(1, int(self._get_config_value("xhs_max_media", 99)))
-        self.xhs_merge_send = bool(self._get_config_value("xhs_merge_send", True))
-        self.xhs_download_original = bool(self._get_config_value("xhs_download_original", True))
-        self.xhs_prefer_ci_png = bool(self._get_config_value("xhs_prefer_ci_png", False))
-        self.xhs_auto_unmerge_threshold_mb = int(self._get_config_value("xhs_auto_unmerge_threshold_mb", 50))
-        self.xhs_concurrent_download = bool(self._get_config_value("xhs_concurrent_download", True))
+        self.xhs_max_media = max(1, int(self._get_config_value("xhs_settings.max_media", 99)))
+        self.xhs_merge_send = bool(self._get_config_value("xhs_settings.merge_send", True))
+        self.xhs_download_original = bool(self._get_config_value("xhs_settings.download_original", True))
+        self.xhs_prefer_ci_png = bool(self._get_config_value("xhs_settings.prefer_ci_png", False))
+        self.xhs_auto_unmerge_threshold_mb = int(self._get_config_value("xhs_settings.auto_unmerge_threshold_mb", 50))
+        self.xhs_concurrent_download = bool(self._get_config_value("xhs_settings.concurrent_download", True))
         
         # 通用配置
-        self.retry_count = max(0, int(self._get_config_value("retry_count", 3)))
-        self.reaction_emoji_enabled = bool(self._get_config_value("reaction_emoji_enabled", True))
-        self.reaction_emoji_id = self._coerce_positive_int(self._get_config_value("reaction_emoji_id", 128169), 128169)
+        self.retry_count = max(0, int(self._get_config_value("general_settings.retry_count", 3)))
+        self.reaction_emoji_enabled = bool(self._get_config_value("general_settings.reaction_emoji_enabled", True))
+        self.reaction_emoji_id = self._coerce_positive_int(self._get_config_value("general_settings.reaction_emoji_id", 128169), 128169)
         self.reaction_emoji_type = "1"  # 固定值，无需配置
-        self.max_video_size_mb = int(self._get_config_value("max_video_size_mb", 200))
-        self.merge_send_as_sender = bool(self._get_config_value("merge_send_as_sender", False))
-        _mode = str(self._get_config_value("error_notify_mode", "静默")).strip()
+        self.max_video_size_mb = int(self._get_config_value("general_settings.max_video_size_mb", 200))
+        self.merge_send_as_sender = bool(self._get_config_value("general_settings.merge_send_as_sender", False))
+        _mode = str(self._get_config_value("general_settings.error_notify_mode", "静默")).strip()
         self.error_notify_mode = _mode if _mode in ("静默", "脱敏", "报错") else "静默"
 
         alias = self._normalize_quality_alias(self.quality_label)

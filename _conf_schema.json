@@ -14,156 +14,180 @@
             "小红书"
         ]
     },
-    "bili_video_quality": {
-        "description": "B站视频下载画质",
-        "type": "string",
-        "hint": "选择下载视频的画质。",
-        "default": "1080P高帧率",
-        "options": [
-            "原画 (最高画质)",
-            "8K",
-            "4K",
-            "1080P高帧率",
-            "1080P",
-            "720P",
-            "最低"
-        ]
+    "bili_settings": {
+        "description": "B站设置",
+        "type": "object",
+        "items": {
+            "video_quality": {
+                "description": "B站视频下载画质",
+                "type": "string",
+                "hint": "选择下载视频的画质。",
+                "default": "1080P高帧率",
+                "options": [
+                    "原画 (最高画质)",
+                    "8K",
+                    "4K",
+                    "1080P高帧率",
+                    "1080P",
+                    "720P",
+                    "最低"
+                ]
+            },
+            "allow_quality_fallback": {
+                "description": "超限时自动降画质",
+                "type": "bool",
+                "hint": "当视频大小超过限制时，自动尝试更低画质下载。",
+                "default": true
+            },
+            "merge_send": {
+                "description": "B站合并发送",
+                "type": "bool",
+                "hint": "开启后将 B 站视频信息和视频合并转发发送（多P默认合并）。不开启只发送单独视频; 视频合并转发总是会有点bug, 推荐单独发送",
+                "default": false
+            },
+            "enable_multi_page": {
+                "description": "B站多P视频处理",
+                "type": "bool",
+                "hint": "开启后，遇到多P视频将按配置下载多个分P。",
+                "default": true
+            },
+            "multi_page_max": {
+                "description": "B站多P最多下载数量",
+                "type": "int",
+                "hint": "多P视频最多下载的分P数量。",
+                "default": 3,
+                "min": 1,
+                "max": 20
+            },
+            "max_duration_seconds": {
+                "description": "B站最大视频时长(秒)",
+                "type": "int",
+                "hint": "视频时长超过该值时直接提示并忽略后续解析。设为 0 表示不限制。",
+                "default": 300,
+                "min": 0,
+                "max": 86400
+            },
+            "cookies": {
+                "description": "B站Cookies",
+                "type": "string",
+                "hint": "粘贴导出的 Cookie 字符串（可选）。填写后可下载更高画质。留空则使用游客模式。",
+                "default": ""
+            }
+        }
     },
-    "bili_allow_quality_fallback": {
-        "description": "超限时自动降画质",
-        "type": "bool",
-        "hint": "当视频大小超过限制时，自动尝试更低画质下载。",
-        "default": true
+    "douyin_settings": {
+        "description": "抖音设置",
+        "type": "object",
+        "items": {
+            "max_media": {
+                "description": "抖音最多发送媒体数",
+                "type": "int",
+                "hint": "抖音图集/动图最多发送的数量。",
+                "default": 99,
+                "min": 1,
+                "max": 99
+            },
+            "merge_send": {
+                "description": "抖音视频合并发送",
+                "type": "bool",
+                "hint": "仅对视频生效。开启时发送卡片+视频的合并转发；关闭时只发送单独视频。图文笔记始终使用合并转发（卡片+图片）。",
+                "default": true
+            }
+        }
     },
-    "bili_merge_send": {
-        "description": "B站合并发送",
-        "type": "bool",
-        "hint": "开启后将 B 站视频信息和视频合并转发发送（多P默认合并）。不开启只发送单独视频; 视频合并转发总是会有点bug, 推荐单独发送",
-        "default": false
+    "xhs_settings": {
+        "description": "小红书设置",
+        "type": "object",
+        "items": {
+            "max_media": {
+                "description": "小红书最多发送媒体数",
+                "type": "int",
+                "hint": "小红书图集最多发送的数量。",
+                "default": 99,
+                "min": 1,
+                "max": 99
+            },
+            "merge_send": {
+                "description": "小红书视频合并发送",
+                "type": "bool",
+                "hint": "仅对视频笔记生效。开启时发送卡片+视频的合并转发；关闭时只发送单独视频。图文笔记始终使用合并转发（卡片+图片）。",
+                "default": true
+            },
+            "download_original": {
+                "description": "下载小红书原图",
+                "type": "bool",
+                "hint": "开启后通过 CDN 直接下载原始高质量图片（通常为 JPEG），关闭则回退到普通解析。",
+                "default": true
+            },
+            "prefer_ci_png": {
+                "description": "小红书优先CI-PNG转码",
+                "type": "bool",
+                "hint": "开启后优先通过腾讯云CI将图片转码为PNG格式(体积约为原图2倍 - 只是 JPEG 转码为 PNG, 不会有画质的提升, 并且部分图片可能转码失败回退到CDN原图), 别开。",
+                "default": false
+            },
+            "auto_unmerge_threshold_mb": {
+                "description": "小红书自动解合阈值(MB)",
+                "type": "int",
+                "hint": "当下载的图片总大小超过此值时，改为逐条发送，防止客户端崩溃。设为0禁用。",
+                "default": 50
+            },
+            "concurrent_download": {
+                "description": "小红书图片并发下载",
+                "type": "bool",
+                "hint": "开启后同时下载多张图片，大幅提升图集解析速度；关闭则逐张串行下载。如遇下载异常可尝试关闭。",
+                "default": true
+            }
+        }
     },
-    "bili_enable_multi_page": {
-        "description": "B站多P视频处理",
-        "type": "bool",
-        "hint": "开启后，遇到多P视频将按配置下载多个分P。",
-        "default": true
-    },
-    "bili_multi_page_max": {
-        "description": "B站多P最多下载数量",
-        "type": "int",
-        "hint": "多P视频最多下载的分P数量。",
-        "default": 3,
-        "min": 1,
-        "max": 20
-    },
-    "bili_max_duration_seconds": {
-        "description": "B站最大视频时长(秒)",
-        "type": "int",
-        "hint": "视频时长超过该值时直接提示并忽略后续解析。设为 0 表示不限制。",
-        "default": 300,
-        "min": 0,
-        "max": 86400
-    },
-    "bili_cookies": {
-        "description": "B站Cookies",
-        "type": "string",
-        "hint": "粘贴导出的 Cookie 字符串（可选）。填写后可下载更高画质。留空则使用游客模式。",
-        "default": ""
-    },
-    "douyin_max_media": {
-        "description": "抖音最多发送媒体数",
-        "type": "int",
-        "hint": "抖音图集/动图最多发送的数量。",
-        "default": 99,
-        "min": 1,
-        "max": 99
-    },
-    "douyin_merge_send": {
-        "description": "抖音视频合并发送",
-        "type": "bool",
-        "hint": "仅对视频生效。开启时发送卡片+视频的合并转发；关闭时只发送单独视频。图文笔记始终使用合并转发（卡片+图片）。",
-        "default": true
-    },
-    "xhs_max_media": {
-        "description": "小红书最多发送媒体数",
-        "type": "int",
-        "hint": "小红书图集最多发送的数量。",
-        "default": 99,
-        "min": 1,
-        "max": 99
-    },
-    "xhs_merge_send": {
-        "description": "小红书视频合并发送",
-        "type": "bool",
-        "hint": "仅对视频笔记生效。开启时发送卡片+视频的合并转发；关闭时只发送单独视频。图文笔记始终使用合并转发（卡片+图片）。",
-        "default": true
-    },
-    "xhs_download_original": {
-        "description": "下载小红书原图",
-        "type": "bool",
-        "hint": "开启后通过 CDN 直接下载原始高质量图片（通常为 JPEG），关闭则回退到普通解析。",
-        "default": true
-    },
-    "xhs_prefer_ci_png": {
-        "description": "小红书优先CI-PNG转码",
-        "type": "bool",
-        "hint": "开启后优先通过腾讯云CI将图片转码为PNG格式(体积约为原图2倍 - 只是 JPEG 转码为 PNG, 不会有画质的提升, 并且部分图片可能转码失败回退到CDN原图), 别开。",
-        "default": false
-    },
-    "xhs_auto_unmerge_threshold_mb": {
-        "description": "小红书自动解合阈值(MB)",
-        "type": "int",
-        "hint": "当下载的图片总大小超过此值时，改为逐条发送，防止客户端崩溃。设为0禁用。",
-        "default": 50
-    },
-    "xhs_concurrent_download": {
-        "description": "小红书图片并发下载",
-        "type": "bool",
-        "hint": "开启后同时下载多张图片，大幅提升图集解析速度；关闭则逐张串行下载。如遇下载异常可尝试关闭。",
-        "default": true
-    },
-    "retry_count": {
-        "description": "解析失败重试次数",
-        "type": "int",
-        "hint": "各平台解析失败时的重试次数，设为0禁用重试",
-        "default": 3,
-        "min": 0,
-        "max": 10
-    },
-    "reaction_emoji_enabled": {
-        "description": "识别后表情回应",
-        "type": "bool",
-        "hint": "识别到链接/卡片后点一个表情，提示开始处理。",
-        "default": true
-    },
-    "reaction_emoji_id": {
-        "description": "回应表情ID",
-        "type": "int",
-        "hint": "调用 set_msg_emoji_like 的 emoji_id，粑粑是128169, OK是124。",
-        "default": 128169
-    },
-    "max_video_size_mb": {
-        "description": "最大视频大小 (MB)",
-        "type": "int",
-        "hint": "超过此大小的视频将不会下载。设置为 0 表示无限制。",
-        "default": 200,
-        "min": 0,
-        "max": 1000
-    },
-    "merge_send_as_sender": {
-        "description": "合并转发显示为发送者",
-        "type": "bool",
-        "hint": "开启后合并转发的发送人显示为发送链接的用户；关闭则显示为 Bot。",
-        "default": false
-    },
-    "error_notify_mode": {
-        "description": "错误通知模式",
-        "type": "string",
-        "hint": "控制解析/下载失败时 Bot 是否在群内发送错误消息。静默：仅记录日志；脱敏：发送通用错误提示（不含异常详情）；报错：发送完整错误信息。",
-        "default": "静默",
-        "options": [
-            "静默",
-            "脱敏",
-            "报错"
-        ]
+    "general_settings": {
+        "description": "通用设置",
+        "type": "object",
+        "items": {
+            "retry_count": {
+                "description": "解析失败重试次数",
+                "type": "int",
+                "hint": "各平台解析失败时的重试次数，设为0禁用重试",
+                "default": 3,
+                "min": 0,
+                "max": 10
+            },
+            "reaction_emoji_enabled": {
+                "description": "识别后表情回应",
+                "type": "bool",
+                "hint": "识别到链接/卡片后点一个表情，提示开始处理。",
+                "default": true
+            },
+            "reaction_emoji_id": {
+                "description": "回应表情ID",
+                "type": "int",
+                "hint": "调用 set_msg_emoji_like 的 emoji_id，粑粑是128169, OK是124。",
+                "default": 128169
+            },
+            "max_video_size_mb": {
+                "description": "最大视频大小 (MB)",
+                "type": "int",
+                "hint": "超过此大小的视频将不会下载。设置为 0 表示无限制。",
+                "default": 200,
+                "min": 0,
+                "max": 1000
+            },
+            "merge_send_as_sender": {
+                "description": "合并转发显示为发送者",
+                "type": "bool",
+                "hint": "开启后合并转发的发送人显示为发送链接的用户；关闭则显示为 Bot。",
+                "default": false
+            },
+            "error_notify_mode": {
+                "description": "错误通知模式",
+                "type": "string",
+                "hint": "控制解析/下载失败时 Bot 是否在群内发送错误消息。静默：仅记录日志；脱敏：发送通用错误提示（不含异常详情）；报错：发送完整错误信息。",
+                "default": "静默",
+                "options": [
+                    "静默",
+                    "脱敏",
+                    "报错"
+                ]
+            }
+        }
     }
 }
