@@ -47,17 +47,55 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         self._refresh_config()
 
     # region 配置
+    # 旧 flat key → 新 dot-path 的映射，兼容升级前的配置数据
+    _LEGACY_KEY_MAP: dict[str, str] = {
+        "bili_settings.video_quality": "bili_video_quality",
+        "bili_settings.video_codecs": "bili_video_codecs",
+        "bili_settings.allow_hdr": "bili_allow_hdr",
+        "bili_settings.allow_dolby": "bili_allow_dolby",
+        "bili_settings.merge_send": "bili_merge_send",
+        "bili_settings.enable_multi_page": "bili_enable_multi_page",
+        "bili_settings.multi_page_max": "bili_multi_page_max",
+        "bili_settings.max_duration_seconds": "bili_max_duration_seconds",
+        "bili_settings.allow_quality_fallback": "bili_allow_quality_fallback",
+        "bili_settings.cookies": "bili_cookies",
+        "douyin_settings.max_media": "douyin_max_media",
+        "douyin_settings.merge_send": "douyin_merge_send",
+        "xhs_settings.max_media": "xhs_max_media",
+        "xhs_settings.merge_send": "xhs_merge_send",
+        "xhs_settings.download_original": "xhs_download_original",
+        "xhs_settings.prefer_ci_png": "xhs_prefer_ci_png",
+        "xhs_settings.auto_unmerge_threshold_mb": "xhs_auto_unmerge_threshold_mb",
+        "xhs_settings.concurrent_download": "xhs_concurrent_download",
+        "general_settings.retry_count": "retry_count",
+        "general_settings.reaction_emoji_enabled": "reaction_emoji_enabled",
+        "general_settings.reaction_emoji_id": "reaction_emoji_id",
+        "general_settings.max_video_size_mb": "max_video_size_mb",
+        "general_settings.merge_send_as_sender": "merge_send_as_sender",
+        "general_settings.error_notify_mode": "error_notify_mode",
+    }
+
     def _get_config_value(self, key: str, default):
+        # 优先按 dot-path 在嵌套结构中查找
         keys = key.split(".")
         val = self.config
         for k in keys:
             if isinstance(val, dict):
                 val = val.get(k)
             else:
-                return default
+                val = None
+                break
             if val is None:
-                return default
-        return val
+                break
+        if val is not None:
+            return val
+        # 尝试旧版 flat key（兼容升级前的配置数据）
+        legacy_key = self._LEGACY_KEY_MAP.get(key)
+        if legacy_key and isinstance(self.config, dict):
+            legacy_val = self.config.get(legacy_key)
+            if legacy_val is not None:
+                return legacy_val
+        return default
 
     def _refresh_config(self) -> None:
         # 平台启用列表
