@@ -113,4 +113,5 @@ astrbot_plugin_link_resolver/
 
 ## 🙏 致谢
 
-- [astrbot_plugin_parser](https://github.com/Zhalslar/astrbot_plugin_parser) 
+- [astrbot_plugin_parser](https://github.com/Zhalslar/astrbot_plugin_parser)
+- [XHS-Downloader](https://github.com/JoeanAmier/XHS-Downloader) — 小红书图片下载参考实现

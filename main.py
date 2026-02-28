@@ -27,12 +27,12 @@ from .core.xiaohongshu.handler import XiaohongshuMixin
 # endregion
 
 # region 运行时常量
-TASK_NAME_PREFIX = "myparser-parse"
+TASK_NAME_PREFIX = "link-resolver-parse"
 # endregion
 
-# region MyParser 类
+# region LinkResolver 类
 @register("astrbot_plugin_link_resolver", "acacia", "解析 & 下载 Bilibili/抖音/小红书", "1.0.8")
-class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
+class LinkResolver(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | dict | None = None):
         super().__init__(context)
         self.context = context
@@ -229,7 +229,7 @@ class MyParser(BilibiliMixin, DouyinMixin, XiaohongshuMixin, Star):
         if cancelled:
             sample = ", ".join(cancelled[:5])
             suffix = "..." if len(cancelled) > 5 else ""
-            logger.info("♻️ 插件重载，已中断旧解析任务 %d 个: %s%s", len(cancelled), sample, suffix)
+            logger.info("♻️ 插件重载，已中断旧解析任务 %d 个（已进入发送阶段的任务无法终止）: %s%s", len(cancelled), sample, suffix)
         else:
             logger.info("♻️ 插件重载，未发现可中断的旧解析任务")
     # endregion
