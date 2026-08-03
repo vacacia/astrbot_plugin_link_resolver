@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     pass
 
-PLUGIN_NAME = "astrbot_plugin_link_resolver"
+PLUGIN_NAME = "link_resolver"
 
 # 路径缓存
 _data_dir: Path | None = None

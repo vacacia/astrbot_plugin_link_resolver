@@ -1,28 +1,19 @@
 """Simulate Bilibili output-path race in a deterministic way.
 
-Run inside AstrBot container:
-    cd /AstrBot
-    python /AstrBot/data/plugins/astrbot_plugin_link_resolver/tests/test_bilibili_race_simulation.py -v
+Run from the AcaBot repo root:
+    .venv/bin/python -m pytest extensions/plugins/link_resolver/tests/test_bilibili_race_simulation.py -q
 """
 
 from __future__ import annotations
 
 import asyncio
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-for candidate in Path(__file__).resolve().parents:
-    if (candidate / "data" / "plugins").exists():
-        root_path = str(candidate)
-        if root_path not in sys.path:
-            sys.path.insert(0, root_path)
-        break
-
-from data.plugins.astrbot_plugin_link_resolver.core.bilibili import handler as bili_handler
-from data.plugins.astrbot_plugin_link_resolver.core.bilibili.handler import BilibiliMixin
+from plugins.link_resolver.core.bilibili import handler as bili_handler
+from plugins.link_resolver.core.bilibili.handler import BilibiliMixin
 
 
 class _DummyHarness(BilibiliMixin):

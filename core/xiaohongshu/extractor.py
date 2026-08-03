@@ -13,7 +13,7 @@ from astrbot.api import logger
 
 # region 常量
 XHS_REQUEST_TIMEOUT_SEC = 30.0
-XHS_SHORT_LINK_PATTERN = r"(?:https?://)?(?:www\.)?xhslink\.(?:com|cn)/[A-Za-z0-9._?%&+=/#@-]+"
+XHS_SHORT_LINK_PATTERN = r"(?:https?://)?(?:www\.)?xhslink\.com/[A-Za-z0-9._?%&+=/#@-]+"
 XHS_MESSAGE_PATTERN = (
     r"(?s).*(?:"
     + XHS_SHORT_LINK_PATTERN

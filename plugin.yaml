@@ -1,0 +1,245 @@
+plugin:
+  plugin_id: link_resolver
+  display_name: Link Resolver
+  entrypoint: plugins.link_resolver:Plugin
+  version: "1.0.10"
+  tools:
+    - link_resolver
+  default_config:
+    enable_platforms:
+      - B站
+      - 抖音
+      - 小红书
+      - 微博
+      - X
+    bili_settings:
+      video_quality: "1080P高帧率"
+      video_codecs: "AVC"
+      allow_hdr: false
+      allow_dolby: false
+      allow_quality_fallback: true
+      merge_send: false
+      summary_mode: "文字摘要"
+      enable_multi_page: true
+      multi_page_max: 3
+      max_duration_seconds: 300
+      cookies: ""
+    douyin_settings:
+      max_media: 99
+      merge_send: false
+      summary_mode: "文字摘要"
+    weibo_settings:
+      max_media: 99
+      merge_send: false
+      download_original: true
+      cookies: ""
+    twitter_settings:
+      max_media: 99
+      merge_send: false
+    xhs_settings:
+      max_media: 99
+      merge_send: false
+      summary_mode: "文字摘要"
+      download_original: true
+      prefer_ci_png: true
+      concurrent_download: true
+      auto_unmerge_threshold_mb: 50
+      qq_image_size_limit_mb: 30
+    general_settings:
+      retry_count: 3
+      reaction_emoji_enabled: true
+      reaction_emoji_id: 128169
+      auto_install_fonts: false
+      custom_font_path: ""
+      custom_emoji_font_path: ""
+      max_video_size_mb: 200
+      merge_send_as_sender: false
+      error_notify_mode: "静默"
+
+  config_schema:
+    type: object
+    properties:
+      enable_platforms:
+        type: array
+        title: "启用的平台"
+        description: "勾选要启用解析的平台"
+        items:
+          type: string
+      bili_settings:
+        type: object
+        title: "B站设置"
+        properties:
+          video_quality:
+            type: string
+            title: "视频下载画质"
+            description: "选择下载视频的画质"
+            enum:
+              - "4K"
+              - "1080P高帧率"
+              - "1080P"
+              - "720P"
+              - "480P"
+              - "360P"
+          video_codecs:
+            type: string
+            title: "视频编码格式"
+            description: "选择视频编码格式"
+            enum:
+              - "AVC"
+              - "HEVC"
+              - "AV1"
+          allow_hdr:
+            type: boolean
+            title: "HDR 支持"
+            description: "是否允许下载 HDR 高动态范围视频"
+          allow_dolby:
+            type: boolean
+            title: "杜比视界"
+            description: "是否允许下载杜比视界(Dolby Vision)视频"
+          allow_quality_fallback:
+            type: boolean
+            title: "超限时自动降画质"
+            description: "当视频大小超过限制时，自动尝试更低画质下载"
+          merge_send:
+            type: boolean
+            title: "合并发送"
+            description: "开启后将视频信息和视频合并转发发送"
+          summary_mode:
+            type: string
+            title: "摘要模式"
+            description: "选择摘要模式"
+            enum:
+              - "文字摘要"
+              - "渲染卡片"
+          enable_multi_page:
+            type: boolean
+            title: "多 P 视频处理"
+            description: "开启后，遇到多 P 视频将按配置下载多个分 P"
+          multi_page_max:
+            type: integer
+            title: "多 P 最多下载数量"
+            description: "多 P 视频最多下载的分 P 数量"
+          max_duration_seconds:
+            type: integer
+            title: "最大视频时长(秒)"
+            description: "视频时长超过该值时直接提示并忽略后续解析，设为 0 表示不限制"
+          cookies:
+            type: string
+            title: "Cookies"
+            description: "B站 Cookies"
+      douyin_settings:
+        type: object
+        title: "抖音设置"
+        properties:
+          max_media:
+            type: integer
+            title: "最大媒体数"
+          merge_send:
+            type: boolean
+            title: "合并发送"
+            description: "开启后将视频信息和视频合并转发发送"
+          summary_mode:
+            type: string
+            title: "摘要模式"
+            enum:
+              - "文字摘要"
+              - "渲染卡片"
+      weibo_settings:
+        type: object
+        title: "微博设置"
+        properties:
+          max_media:
+            type: integer
+            title: "最大媒体数"
+          merge_send:
+            type: boolean
+            title: "合并发送"
+          download_original:
+            type: boolean
+            title: "下载原图"
+            description: "优先下载原始分辨率图片"
+          cookies:
+            type: string
+            title: "Cookies"
+      twitter_settings:
+        type: object
+        title: "Twitter 设置"
+        properties:
+          max_media:
+            type: integer
+            title: "最大媒体数"
+          merge_send:
+            type: boolean
+            title: "合并发送"
+      xhs_settings:
+        type: object
+        title: "小红书设置"
+        properties:
+          max_media:
+            type: integer
+            title: "最大媒体数"
+          merge_send:
+            type: boolean
+            title: "合并发送"
+          summary_mode:
+            type: string
+            title: "摘要模式"
+            enum:
+              - "文字摘要"
+              - "渲染卡片"
+          download_original:
+            type: boolean
+            title: "下载原图"
+            description: "优先下载原始分辨率图片"
+          prefer_ci_png:
+            type: boolean
+            title: "优先 CI PNG"
+            description: "优先使用 CI 压缩的 PNG 格式"
+          concurrent_download:
+            type: boolean
+            title: "并发下载"
+            description: "同时下载多个媒体文件"
+          auto_unmerge_threshold_mb:
+            type: integer
+            title: "自动拆分阈值(MB)"
+          qq_image_size_limit_mb:
+            type: integer
+            title: "QQ 图片大小限制(MB)"
+      general_settings:
+        type: object
+        title: "通用设置"
+        properties:
+          retry_count:
+            type: integer
+            title: "重试次数"
+          reaction_emoji_enabled:
+            type: boolean
+            title: "表情反应"
+          reaction_emoji_id:
+            type: integer
+            title: "表情 ID"
+          auto_install_fonts:
+            type: boolean
+            title: "自动安装字体"
+            description: "需要时自动下载并安装缺失字体"
+          custom_font_path:
+            type: string
+            title: "自定义字体路径"
+            description: "指定自定义字体文件路径"
+          custom_emoji_font_path:
+            type: string
+            title: "自定义表情字体路径"
+          max_video_size_mb:
+            type: integer
+            title: "最大视频大小(MB)"
+          merge_send_as_sender:
+            type: boolean
+            title: "以发送者合并"
+          error_notify_mode:
+            type: string
+            title: "错误通知模式"
+            description: "解析失败时的通知方式"
+            enum:
+              - "静默"
+              - "简单通知"
+              - "详细通知"

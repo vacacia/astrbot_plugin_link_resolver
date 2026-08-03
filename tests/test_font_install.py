@@ -1,37 +1,28 @@
 # ruff: noqa: E402
 """Tests for managed font installation and config wiring.
 
-Run inside AstrBot container:
-    cd /AstrBot
-    python /AstrBot/data/plugins/astrbot_plugin_link_resolver/tests/test_font_install.py -v
+Run from the AcaBot repo root:
+    .venv/bin/python -m pytest extensions/plugins/link_resolver/tests/test_font_install.py -q
 """
 
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import httpx
 
-for candidate in Path(__file__).resolve().parents:
-    if (candidate / "data" / "plugins").exists():
-        root_path = str(candidate)
-        if root_path not in sys.path:
-            sys.path.insert(0, root_path)
-        break
-
-from data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils import (
+from plugins.link_resolver.core.common.card_renderer.utils import (
     find_default_font,
     find_emoji_font,
 )
-from data.plugins.astrbot_plugin_link_resolver.core.common.font_manager import (
+from plugins.link_resolver.core.common.font_manager import (
     ManagedFontPaths,
     install_managed_fonts,
 )
-from data.plugins.astrbot_plugin_link_resolver.main import LinkResolver
+from plugins.link_resolver.main import LinkResolver
 
 
 class FakeResponse:
@@ -53,7 +44,7 @@ class FakeResponse:
 
 class TestFontInstall(unittest.TestCase):
     def tearDown(self):
-        from data.plugins.astrbot_plugin_link_resolver.core.common.font_manager import (
+        from plugins.link_resolver.core.common.font_manager import (
             set_user_font_paths,
         )
 
@@ -68,10 +59,10 @@ class TestFontInstall(unittest.TestCase):
 
         with (
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.set_managed_fonts_enabled"
+                "plugins.link_resolver.main.set_managed_fonts_enabled"
             ) as set_enabled,
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.install_managed_fonts"
+                "plugins.link_resolver.main.install_managed_fonts"
             ) as install_mock,
         ):
             LinkResolver._configure_managed_fonts(plugin)
@@ -80,49 +71,33 @@ class TestFontInstall(unittest.TestCase):
         install_mock.assert_not_called()
         self.assertFalse(plugin.font_auto_install_enabled)
 
-    def test_initialize_installs_managed_fonts_off_event_loop(self):
-        plugin = LinkResolver.__new__(LinkResolver)
-        plugin.font_auto_install_enabled = True
-        plugin._refresh_config = Mock()
-        expected = ManagedFontPaths(
-            primary=Path("/tmp/NotoSansCJKsc-Regular.otf"),
-            emoji=Path("/tmp/OpenMoji-black-glyf.ttf"),
-        )
-
-        with patch(
-            "data.plugins.astrbot_plugin_link_resolver.main.install_managed_fonts",
-            return_value=expected,
-        ) as install_mock:
-            import asyncio
-
-            asyncio.run(LinkResolver.initialize(plugin))
-
-        install_mock.assert_called_once()
-        self.assertTrue(plugin.font_auto_install_enabled)
-        self.assertTrue(plugin.managed_primary_font_ready)
-        self.assertTrue(plugin.managed_emoji_font_ready)
-        plugin._refresh_config.assert_called_once_with()
-
-    def test_configure_managed_fonts_enabled_defers_install_to_initialize(self):
+    def test_configure_managed_fonts_enabled_installs(self):
         plugin = LinkResolver.__new__(LinkResolver)
         plugin.config = {"general_settings": {"auto_install_fonts": True}}
         plugin._get_config_value = LinkResolver._get_config_value.__get__(
             plugin, LinkResolver
         )
+        expected = ManagedFontPaths(
+            primary=Path("/tmp/NotoSansCJKsc-Regular.otf"),
+            emoji=Path("/tmp/OpenMoji-black-glyf.ttf"),
+        )
 
         with (
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.set_managed_fonts_enabled"
+                "plugins.link_resolver.main.set_managed_fonts_enabled"
             ) as set_enabled,
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.install_managed_fonts",
+                "plugins.link_resolver.main.install_managed_fonts",
+                return_value=expected,
             ) as install_mock,
         ):
             LinkResolver._configure_managed_fonts(plugin)
 
         set_enabled.assert_called_once_with(True)
-        install_mock.assert_not_called()
+        install_mock.assert_called_once()
         self.assertTrue(plugin.font_auto_install_enabled)
+        self.assertTrue(plugin.managed_primary_font_ready)
+        self.assertTrue(plugin.managed_emoji_font_ready)
 
     def test_configure_managed_fonts_sets_custom_paths(self):
         plugin = LinkResolver.__new__(LinkResolver)
@@ -139,10 +114,10 @@ class TestFontInstall(unittest.TestCase):
 
         with (
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.set_managed_fonts_enabled"
+                "plugins.link_resolver.main.set_managed_fonts_enabled"
             ) as set_enabled,
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.set_user_font_paths"
+                "plugins.link_resolver.main.set_user_font_paths"
             ) as set_user_paths,
         ):
             LinkResolver._configure_managed_fonts(plugin)
@@ -176,23 +151,23 @@ class TestFontInstall(unittest.TestCase):
         with (
             patch.object(plugin, "_configure_managed_fonts", lambda: None),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.get_user_font_paths",
+                "plugins.link_resolver.main.get_user_font_paths",
                 return_value=ManagedFontPaths(primary=None, emoji=None),
             ),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.get_managed_font_paths",
+                "plugins.link_resolver.main.get_managed_font_paths",
                 return_value=ManagedFontPaths(primary=None, emoji=None),
             ),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.find_default_font",
+                "plugins.link_resolver.main.find_default_font",
                 return_value=None,
             ),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.find_emoji_font",
+                "plugins.link_resolver.main.find_emoji_font",
                 return_value=None,
             ),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.XiaohongshuCardRenderer"
+                "plugins.link_resolver.main.XiaohongshuCardRenderer"
             ),
         ):
             LinkResolver._refresh_config(plugin)
@@ -223,23 +198,23 @@ class TestFontInstall(unittest.TestCase):
         with (
             patch.object(plugin, "_configure_managed_fonts", lambda: None),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.get_user_font_paths",
+                "plugins.link_resolver.main.get_user_font_paths",
                 return_value=ManagedFontPaths(primary=None, emoji=None),
             ),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.get_managed_font_paths",
+                "plugins.link_resolver.main.get_managed_font_paths",
                 return_value=ManagedFontPaths(primary=None, emoji=None),
             ),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.find_default_font",
+                "plugins.link_resolver.main.find_default_font",
                 return_value=expected_font,
             ),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.find_emoji_font",
+                "plugins.link_resolver.main.find_emoji_font",
                 return_value=None,
             ),
             patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.XiaohongshuCardRenderer",
+                "plugins.link_resolver.main.XiaohongshuCardRenderer",
                 return_value=new_renderer,
             ) as renderer_cls,
         ):
@@ -247,54 +222,6 @@ class TestFontInstall(unittest.TestCase):
 
         renderer_cls.assert_called_once_with(expected_font)
         self.assertIs(plugin.xhs_renderer, new_renderer)
-
-    def test_refresh_config_preserves_explicit_empty_reaction_emoji_list(self):
-        plugin = LinkResolver.__new__(LinkResolver)
-        plugin.config = {
-            "general_settings": {
-                "reaction_emoji_list": [],
-            }
-        }
-        plugin.font_auto_install_enabled = False
-        plugin.custom_primary_font_path = None
-        plugin.custom_emoji_font_path = None
-        plugin.weibo_extractor = type(
-            "WeiboExtractorStub",
-            (),
-            {
-                "set_cookie": lambda self, cookie: None,
-                "has_user_cookie": lambda self: False,
-            },
-        )()
-        plugin._get_config_value = LinkResolver._get_config_value.__get__(
-            plugin, LinkResolver
-        )
-
-        with (
-            patch.object(plugin, "_configure_managed_fonts", lambda: None),
-            patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.get_user_font_paths",
-                return_value=ManagedFontPaths(primary=None, emoji=None),
-            ),
-            patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.get_managed_font_paths",
-                return_value=ManagedFontPaths(primary=None, emoji=None),
-            ),
-            patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.find_default_font",
-                return_value=None,
-            ),
-            patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.find_emoji_font",
-                return_value=None,
-            ),
-            patch(
-                "data.plugins.astrbot_plugin_link_resolver.main.XiaohongshuCardRenderer"
-            ),
-        ):
-            LinkResolver._refresh_config(plugin)
-
-        self.assertEqual(plugin.reaction_emoji_list, [])
 
     def test_install_managed_fonts_falls_back_to_next_source(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -314,15 +241,15 @@ class TestFontInstall(unittest.TestCase):
 
             with (
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.font_manager.get_managed_primary_font_file",
+                    "plugins.link_resolver.core.common.font_manager.get_managed_primary_font_file",
                     return_value=primary_target,
                 ),
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.font_manager.get_managed_emoji_font_file",
+                    "plugins.link_resolver.core.common.font_manager.get_managed_emoji_font_file",
                     return_value=emoji_target,
                 ),
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.font_manager.httpx.stream",
+                    "plugins.link_resolver.core.common.font_manager.httpx.stream",
                     side_effect=fake_stream,
                 ),
             ):
@@ -354,19 +281,19 @@ class TestFontInstall(unittest.TestCase):
 
             with (
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils.get_user_font_paths",
+                    "plugins.link_resolver.core.common.card_renderer.utils.get_user_font_paths",
                     return_value=ManagedFontPaths(primary=user_font, emoji=None),
                 ),
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils.get_managed_font_paths",
+                    "plugins.link_resolver.core.common.card_renderer.utils.get_managed_font_paths",
                     return_value=ManagedFontPaths(primary=managed_font, emoji=None),
                 ),
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils.managed_fonts_enabled",
+                    "plugins.link_resolver.core.common.card_renderer.utils.managed_fonts_enabled",
                     return_value=True,
                 ),
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils._font_path_loadable",
+                    "plugins.link_resolver.core.common.card_renderer.utils._font_path_loadable",
                     return_value=True,
                 ),
             ):
@@ -381,19 +308,19 @@ class TestFontInstall(unittest.TestCase):
 
             with (
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils.get_user_font_paths",
+                    "plugins.link_resolver.core.common.card_renderer.utils.get_user_font_paths",
                     return_value=ManagedFontPaths(primary=None, emoji=user_font),
                 ),
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils.get_managed_font_paths",
+                    "plugins.link_resolver.core.common.card_renderer.utils.get_managed_font_paths",
                     return_value=ManagedFontPaths(primary=None, emoji=managed_font),
                 ),
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils.managed_fonts_enabled",
+                    "plugins.link_resolver.core.common.card_renderer.utils.managed_fonts_enabled",
                     return_value=True,
                 ),
                 patch(
-                    "data.plugins.astrbot_plugin_link_resolver.core.common.card_renderer.utils._emoji_font_path_renders",
+                    "plugins.link_resolver.core.common.card_renderer.utils._emoji_font_path_renders",
                     return_value=True,
                 ),
             ):

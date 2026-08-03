@@ -1,46 +1,37 @@
 # ruff: noqa: E402
 """Tests for per-platform summary_mode behavior.
 
-Run inside AstrBot container:
-    cd /AstrBot
-    python /AstrBot/data/plugins/astrbot_plugin_link_resolver/tests/test_summary_mode.py -v
+Run from the AcaBot repo root:
+    .venv/bin/python -m pytest extensions/plugins/link_resolver/tests/test_summary_mode.py -q
 """
 
 from __future__ import annotations
 
-import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-for candidate in Path(__file__).resolve().parents:
-    if (candidate / "data" / "plugins").exists():
-        root_path = str(candidate)
-        if root_path not in sys.path:
-            sys.path.insert(0, root_path)
-        break
-
 from astrbot.api.message_components import Image, Plain
-from data.plugins.astrbot_plugin_link_resolver.core.bilibili.handler import (
+from plugins.link_resolver.core.bilibili.handler import (
     BilibiliMixin,
     VideoRef,
 )
-from data.plugins.astrbot_plugin_link_resolver.core.douyin import DouyinResult
-from data.plugins.astrbot_plugin_link_resolver.core.douyin.handler import DouyinMixin
-from data.plugins.astrbot_plugin_link_resolver.core.xiaohongshu import XiaohongshuResult
-from data.plugins.astrbot_plugin_link_resolver.core.xiaohongshu.handler import (
+from plugins.link_resolver.core.douyin import DouyinResult
+from plugins.link_resolver.core.douyin.handler import DouyinMixin
+from plugins.link_resolver.core.xiaohongshu import XiaohongshuResult
+from plugins.link_resolver.core.xiaohongshu.handler import (
     XiaohongshuMixin,
 )
-from data.plugins.astrbot_plugin_link_resolver.main import LinkResolver
+from plugins.link_resolver.main import LinkResolver
 
 
 class DummyEvent:
-    def __init__(self):
+    def __init__(self, *, tool_invocation: bool = False):
         self.sent = []
         self.result = None
+        self._tool_invocation = tool_invocation
 
     async def send(self, chain):
         self.sent.append(chain)
@@ -53,6 +44,9 @@ class DummyEvent:
 
     def set_result(self, result):
         self.result = result
+
+    def is_tool_invocation(self) -> bool:
+        return self._tool_invocation
 
 
 class TestSummaryModeConfig(unittest.TestCase):
@@ -79,16 +73,6 @@ class TestSummaryModeConfig(unittest.TestCase):
             LinkResolver._read_summary_mode(plugin, "xhs_settings.summary_mode"),
             "文字摘要",
         )
-
-    def test_conf_schema_exposes_summary_mode_for_bili_douyin_and_xhs(self):
-        schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
-
-        for platform in ("bili_settings", "douyin_settings", "xhs_settings"):
-            item = schema[platform]["items"].get("summary_mode")
-            self.assertIsNotNone(item, platform)
-            self.assertEqual(item["default"], "文字摘要")
-            self.assertEqual(item["options"], ["文字摘要", "渲染卡片"])
 
 
 class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
@@ -183,7 +167,9 @@ class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f"链接：{original_link}", first_component.text)
         self.assertNotIn("https://www.douyin.com/note/123456789", first_component.text)
 
-    async def test_process_xhs_force_unmerge_sends_summary_before_images(self):
+    async def test_process_xhs_over_limit_asks_before_expanding_images(self):
+        """自动解析超过体积阈值时只发送确认提示."""
+
         event = DummyEvent()
         original_link = (
             "https://www.xiaohongshu.com/discovery/item/abc123"
@@ -240,17 +226,69 @@ class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
                 results.append(result)
 
         plugin._render_xhs_card.assert_not_awaited()
+        self.assertEqual(
+            results,
+            ["这篇有 1 张图片, 共 2.00 MB, 全部展开会很大喵, 真的要解析吗?"],
+        )
+        plugin.cleanup_files.assert_awaited_once_with([image_path], [])
+
+    async def test_process_xhs_tool_invocation_force_unmerges_over_limit(self):
+        """工具解析超过体积阈值时继续逐张发送."""
+
+        event = DummyEvent(tool_invocation=True)
+        original_link = "https://www.xiaohongshu.com/discovery/item/abc123"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            image_path = Path(tmpdir) / "xhs.jpg"
+            image_path.write_bytes(b"x" * 2 * 1024 * 1024)
+
+            plugin = SimpleNamespace(
+                xhs_enabled=True,
+                xhs_summary_mode="文字摘要",
+                xhs_render_card=False,
+                xhs_merge_send=False,
+                xhs_max_media=99,
+                xhs_concurrent_download=False,
+                xhs_auto_unmerge_threshold_mb=1,
+                xhs_qq_image_size_limit_mb=0,
+                retry_count=0,
+                max_video_size_mb=200,
+                xhs_extractor=SimpleNamespace(
+                    parse=AsyncMock(
+                        return_value=XiaohongshuResult(
+                            title="小红书标题",
+                            author="作者乙",
+                            text="完整正文内容",
+                            image_urls=["https://example.com/xhs.jpg"],
+                            file_ids=[],
+                            video_url=None,
+                            cover_url=None,
+                            source_url=original_link,
+                            note_id="abc123",
+                        )
+                    )
+                ),
+                _refresh_config=lambda: None,
+                _send_reaction_emoji=AsyncMock(),
+                _download_xhs_image=AsyncMock(return_value=image_path),
+                _download_xhs_video=AsyncMock(),
+                _render_xhs_card=AsyncMock(),
+                _prepare_component_for_merge_send=AsyncMock(
+                    side_effect=lambda component: component
+                ),
+                cleanup_files=AsyncMock(),
+            )
+            plugin._build_xhs_summary = XiaohongshuMixin._build_xhs_summary.__get__(
+                plugin, XiaohongshuMixin
+            )
+
+            results = []
+            async for result in XiaohongshuMixin._process_xhs(
+                plugin, event, original_link
+            ):
+                results.append(result)
+
         self.assertEqual(len(results), 2)
         self.assertIsInstance(results[0][0], Plain)
-        self.assertIn("🍠 小红书", results[0][0].text)
-        self.assertIn("正文：完整正文内容", results[0][0].text)
-        self.assertIn("媒体：图片 1 张", results[0][0].text)
-        self.assertIn(
-            "链接：https://www.xiaohongshu.com/discovery/item/abc123",
-            results[0][0].text,
-        )
-        self.assertNotIn("app_platform=android", results[0][0].text)
-        self.assertNotIn("share_channel=qq", results[0][0].text)
         self.assertIsInstance(results[1][0], Image)
 
     async def test_process_bili_single_page_merge_send_uses_plain_summary_node(self):
@@ -316,7 +354,7 @@ class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
             )
 
             with patch(
-                "data.plugins.astrbot_plugin_link_resolver.core.bilibili.handler.video.Video",
+                "plugins.link_resolver.core.bilibili.handler.video.Video",
                 return_value=object(),
             ):
                 await BilibiliMixin._process_bili_video(

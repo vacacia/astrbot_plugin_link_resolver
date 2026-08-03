@@ -5,7 +5,6 @@ import json
 import re
 import time
 from pathlib import Path
-from random import choice
 from urllib.parse import urlparse
 
 import httpx
@@ -49,7 +48,7 @@ SUMMARY_MODE_CARD = "渲染卡片"
 
 # region LinkResolver 类
 @register(
-    "astrbot_plugin_link_resolver",
+    "link_resolver",
     "acacia",
     "解析 & 下载 Bilibili/抖音/小红书/微博/X",
     "1.0.10",
@@ -77,16 +76,6 @@ class LinkResolverPlugin(
         self.managed_primary_font_ready = False
         self.managed_emoji_font_ready = False
         self.xhs_renderer: XiaohongshuCardRenderer | None = None
-        self._refresh_config()
-
-    async def initialize(self) -> None:
-        """在后台线程安装可选字体, 避免阻塞 AstrBot 的事件循环."""
-        if not self.font_auto_install_enabled:
-            return
-
-        managed_paths = await asyncio.to_thread(install_managed_fonts)
-        self.managed_primary_font_ready = managed_paths.primary is not None
-        self.managed_emoji_font_ready = managed_paths.emoji is not None
         self._refresh_config()
 
     # region 配置
@@ -178,6 +167,7 @@ class LinkResolverPlugin(
         bili_cookies_str = str(
             self._get_config_value("bili_settings.cookies", "")
         ).strip()
+        self.bili_cookie_enabled = bool(bili_cookies_str)
         if bili_cookies_str:
             try:
                 cookies_file = get_bili_cookies_file()
@@ -264,21 +254,8 @@ class LinkResolverPlugin(
         self.reaction_emoji_enabled = bool(
             self._get_config_value("general_settings.reaction_emoji_enabled", True)
         )
-        _raw_list = self._get_config_value(
-            "general_settings.reaction_emoji_list", [127827]
-        )
-        _emoji_list: list[int] = []
-        if isinstance(_raw_list, list):
-            for item in _raw_list[:5]:
-                coerced = self._coerce_positive_int(item, 0)
-                if coerced > 0:
-                    _emoji_list.append(coerced)
-        self.reaction_emoji_list = _emoji_list
-        _strategy = str(
-            self._get_config_value("general_settings.reaction_emoji_strategy", "随机")
-        ).strip()
-        self.reaction_emoji_strategy = (
-            _strategy if _strategy in ("随机", "顺序循环") else "随机"
+        self.reaction_emoji_id = self._coerce_positive_int(
+            self._get_config_value("general_settings.reaction_emoji_id", 128169), 128169
         )
         self.reaction_emoji_type = "1"  # 固定值，无需配置
         self.max_video_size_mb = int(
@@ -291,19 +268,6 @@ class LinkResolverPlugin(
             self._get_config_value("general_settings.error_notify_mode", "静默")
         ).strip()
         self.error_notify_mode = _mode if _mode in ("静默", "脱敏", "报错") else "静默"
-
-        # 群过滤配置(黑/白名单)
-        _gf_mode = str(self._get_config_value("group_filter.mode", "黑名单")).strip()
-        self.group_filter_mode = (
-            _gf_mode if _gf_mode in ("黑名单", "白名单") else "黑名单"
-        )
-        _gf_list = self._get_config_value("group_filter.group_list", [])
-        if isinstance(_gf_list, list):
-            self.group_filter_list = [
-                str(item).strip() for item in _gf_list if str(item).strip()
-            ]
-        else:
-            self.group_filter_list = []
 
         alias = self._normalize_quality_alias(self.quality_label)
         if alias == "HDR":
@@ -330,23 +294,49 @@ class LinkResolverPlugin(
             if self.xhs_qq_image_size_limit_mb > 0
             else "关闭"
         )
+        xhs_auto_unmerge_label = (
+            f"{self.xhs_auto_unmerge_threshold_mb}MB"
+            if self.xhs_auto_unmerge_threshold_mb > 0
+            else "关闭"
+        )
+        max_video_size_label = (
+            f"{self.max_video_size_mb}MB"
+            if self.max_video_size_mb > 0
+            else "关闭"
+        )
         logger.info(
-            "📹 LinkResolver 配置: 平台=%s, B站(画质=%s,合并=%s,摘要=%s,时长<=%s), 抖音(合并=%s,摘要=%s), 小红书(原图=%s,摘要=%s,大图转文件=%s), 微博(原图=%s,合并=%s,Cookie=%s), X(合并=%s,最多=%d), 字体(自动安装=%s,主字体=%s,Emoji=%s), 重试=%d",
+            "📹 LinkResolver 配置: 平台=%s, B站(画质=%s,回退=%s,多P=%s/%d,合并=%s,摘要=%s,时长<=%s,Cookie=%s), 抖音(合并=%s,摘要=%s,最多=%d), 小红书(原图=%s,合并=%s,摘要=%s,最多=%d,自动解合<=%s,单图上限=%s,并发=%s), 微博(原图=%s,合并=%s,最多=%d,Cookie=%s), X(合并=%s,最多=%d), 通用(表情=%s,表情ID=%d,视频<=%s,合并发送者=%s,错误=%s,重试=%d), 字体(自动安装=%s,主字体=%s,Emoji=%s)",
             "/".join(enabled_list) if enabled_list else "无",
             self.video_quality.name,
+            "开" if self.allow_quality_fallback else "关",
+            "开" if self.enable_multi_page else "关",
+            self.multi_page_max,
             "开" if self.bili_merge_send else "关",
             "卡片" if self.bili_render_card else "文字",
             duration_label,
+            "开" if self.bili_cookie_enabled else "关",
             "开" if self.douyin_merge_send else "关",
             "卡片" if self.douyin_render_card else "文字",
+            self.douyin_max_media,
             "开" if self.xhs_download_original else "关",
+            "开" if self.xhs_merge_send else "关",
             "卡片" if self.xhs_render_card else "文字",
+            self.xhs_max_media,
+            xhs_auto_unmerge_label,
             xhs_image_limit_label,
+            "开" if self.xhs_concurrent_download else "关",
             "开" if self.weibo_download_original else "关",
             "开" if self.weibo_merge_send else "关",
+            self.weibo_max_media,
             "开" if self.weibo_cookie_enabled else "关",
             "开" if self.twitter_merge_send else "关",
             self.twitter_max_media,
+            "开" if self.reaction_emoji_enabled else "关",
+            self.reaction_emoji_id,
+            max_video_size_label,
+            "发送者" if self.merge_send_as_sender else "Bot",
+            self.error_notify_mode,
+            self.retry_count,
             "开" if self.font_auto_install_enabled else "关",
             "用户配置"
             if self.user_primary_font_ready
@@ -362,12 +352,6 @@ class LinkResolverPlugin(
                 if self.managed_emoji_font_ready
                 else ("系统" if self.default_emoji_font else "无")
             ),
-            self.retry_count,
-        )
-        logger.info(
-            "🚦 群过滤: 模式=%s, 数量=%d",
-            self.group_filter_mode,
-            len(self.group_filter_list),
         )
         self.xhs_renderer = XiaohongshuCardRenderer(self.default_primary_font)
 
@@ -392,6 +376,11 @@ class LinkResolverPlugin(
         if not self.font_auto_install_enabled:
             self.managed_primary_font_ready = False
             self.managed_emoji_font_ready = False
+            return
+
+        managed_paths = install_managed_fonts()
+        self.managed_primary_font_ready = managed_paths.primary is not None
+        self.managed_emoji_font_ready = managed_paths.emoji is not None
 
     # region 解析任务管理
     def _register_parse_task(
@@ -676,23 +665,6 @@ class LinkResolverPlugin(
 
         return False
 
-    def _is_group_allowed(self, event: AstrMessageEvent) -> bool:
-        """根据群过滤(黑/白名单)判断当前群是否允许解析。
-
-        私聊不受过滤限制,始终返回 True。
-        """
-        group_id = event.get_group_id()
-        if not group_id:
-            return True
-        gid = str(group_id)
-        if self.group_filter_mode == "白名单":
-            allowed = gid in self.group_filter_list
-        else:
-            allowed = gid not in self.group_filter_list
-        if not allowed:
-            logger.debug("🚫 群 %s 被%s拦截,跳过解析", gid, self.group_filter_mode)
-        return allowed
-
     # endregion
 
     # region 表情回应
@@ -720,9 +692,6 @@ class LinkResolverPlugin(
     ) -> None:
         if not self.reaction_emoji_enabled:
             return
-        if not self.reaction_emoji_list:
-            logger.debug("表情回应跳过%s: 列表为空", source_tag)
-            return
         if not event.get_group_id():
             logger.debug("表情回应跳过%s: 非群消息", source_tag)
             return
@@ -734,24 +703,15 @@ class LinkResolverPlugin(
         if message_id is None:
             logger.debug("表情回应跳过%s: 无法获取 message_id", source_tag)
             return
-        if self.reaction_emoji_strategy == "顺序循环":
-            emoji_ids = list(self.reaction_emoji_list)
-        else:
-            emoji_ids = [choice(self.reaction_emoji_list)]
-        for emoji_id in emoji_ids:
-            try:
-                await bot.set_msg_emoji_like(
-                    message_id=message_id,
-                    emoji_id=emoji_id,
-                    emoji_type=self.reaction_emoji_type,
-                    set=True,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "⚠️ 表情回应失败%s: emoji_id=%s, %s", source_tag, emoji_id, str(exc)
-                )
-            if len(emoji_ids) > 1:
-                await asyncio.sleep(0.5)
+        try:
+            await bot.set_msg_emoji_like(
+                message_id=message_id,
+                emoji_id=self.reaction_emoji_id,
+                emoji_type=self.reaction_emoji_type,
+                set=True,
+            )
+        except Exception as exc:
+            logger.warning("⚠️ 表情回应失败%s: %s", source_tag, str(exc))
 
     # endregion
 
@@ -821,8 +781,15 @@ class LinkResolverPlugin(
             try:
                 hdrs = headers or {}
                 cks = cookies or {}
+                timeout = httpx.Timeout(
+                    60.0,
+                    connect=10.0,
+                    read=30.0,
+                    write=30.0,
+                    pool=10.0,
+                )
                 async with httpx.AsyncClient(
-                    timeout=None, headers=hdrs, cookies=cks
+                    timeout=timeout, headers=hdrs, cookies=cks
                 ) as client:
                     async with client.stream(
                         "GET", url, follow_redirects=True
@@ -984,8 +951,6 @@ class LinkResolverPlugin(
     async def handle_bili_video(self, event: AstrMessageEvent):
         if self._has_json_component(event):
             return
-        if not self._is_group_allowed(event):
-            return
         self._register_parse_task("bili", event)
         await BilibiliMixin.handle_bili_video(self, event)
 
@@ -993,16 +958,12 @@ class LinkResolverPlugin(
     async def handle_douyin(self, event: AstrMessageEvent):
         if self._has_json_component(event):
             return
-        if not self._is_group_allowed(event):
-            return
         self._register_parse_task("douyin", event)
         await DouyinMixin.handle_douyin(self, event)
 
     @filter.regex(XHS_MESSAGE_PATTERN, priority=10)
     async def handle_xhs(self, event: AstrMessageEvent):
         if self._has_json_component(event):
-            return
-        if not self._is_group_allowed(event):
             return
         self._register_parse_task("xhs", event)
         async for result in XiaohongshuMixin.handle_xhs(self, event):
@@ -1012,8 +973,6 @@ class LinkResolverPlugin(
     async def handle_weibo(self, event: AstrMessageEvent):
         if self._has_json_component(event):
             return
-        if not self._is_group_allowed(event):
-            return
         self._register_parse_task("weibo", event)
         await WeiboMixin.handle_weibo(self, event)
 
@@ -1021,16 +980,12 @@ class LinkResolverPlugin(
     async def handle_twitter(self, event: AstrMessageEvent):
         if self._has_json_component(event):
             return
-        if not self._is_group_allowed(event):
-            return
         self._register_parse_task("twitter", event)
         await TwitterMixin.handle_twitter(self, event)
 
     @filter.regex(r".*")
     async def handle_json_card(self, event: AstrMessageEvent):
         if self._is_self_message(event):
-            return
-        if not self._is_group_allowed(event):
             return
 
         links: list[str] = []

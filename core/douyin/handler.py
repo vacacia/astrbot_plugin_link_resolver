@@ -271,7 +271,7 @@ class DouyinMixin:
             )
             return
 
-        logger.debug(
+        logger.info(
             "🎵 抖音解析完成%s: 视频=%s, 图片=%d, 动图=%d, 解析耗时=%.2fs",
             source_tag,
             "有" if result.video_url else "无",
@@ -301,7 +301,7 @@ class DouyinMixin:
         download_start = time.perf_counter()
 
         if image_urls or dynamic_urls:
-            logger.debug(
+            logger.info(
                 "📥 抖音下载开始%s: 图片=%d, 动图=%d",
                 source_tag,
                 len(image_urls),
@@ -315,7 +315,7 @@ class DouyinMixin:
                     media_components.append(
                         Image.fromFileSystem(str(image_path.resolve()))
                     )
-                    logger.debug(
+                    logger.info(
                         "📥 抖音图片下载成功%s [%d/%d]: size=%.1fKB, 耗时=%.2fs",
                         source_tag,
                         i + 1,
@@ -324,6 +324,12 @@ class DouyinMixin:
                         time.perf_counter() - img_start,
                     )
                 except asyncio.CancelledError:
+                    logger.info(
+                        "♻️ 抖音图片下载任务已中断%s [%d/%d]",
+                        source_tag,
+                        i + 1,
+                        len(image_urls),
+                    )
                     raise
                 except Exception as exc:
                     failed_images += 1
@@ -343,7 +349,7 @@ class DouyinMixin:
                     media_components.append(
                         Video.fromFileSystem(str(video_path.resolve()))
                     )
-                    logger.debug(
+                    logger.info(
                         "📥 抖音动图下载成功%s [%d/%d]: size=%.2fMB, 耗时=%.2fs",
                         source_tag,
                         i + 1,
@@ -352,6 +358,12 @@ class DouyinMixin:
                         time.perf_counter() - dyn_start,
                     )
                 except asyncio.CancelledError:
+                    logger.info(
+                        "♻️ 抖音动图下载任务已中断%s [%d/%d]",
+                        source_tag,
+                        i + 1,
+                        len(dynamic_urls),
+                    )
                     raise
                 except SizeLimitExceeded:
                     failed_dynamics += 1
@@ -371,7 +383,7 @@ class DouyinMixin:
                         str(exc),
                     )
         elif result.video_url:
-            logger.debug("📥 抖音视频下载开始%s...", source_tag)
+            logger.info("📥 抖音视频下载开始%s...", source_tag)
             try:
                 video_start = time.perf_counter()
                 video_path = await self._download_douyin_video(
@@ -379,13 +391,14 @@ class DouyinMixin:
                 )
                 media_paths.append(video_path)
                 media_components.append(Video.fromFileSystem(str(video_path.resolve())))
-                logger.debug(
+                logger.info(
                     "📥 抖音视频下载成功%s: size=%.2fMB, 耗时=%.2fs",
                     source_tag,
                     video_path.stat().st_size / 1024 / 1024,
                     time.perf_counter() - video_start,
                 )
             except asyncio.CancelledError:
+                logger.info("♻️ 抖音视频下载任务已中断%s", source_tag)
                 raise
             except SizeLimitExceeded:
                 logger.warning(
@@ -473,13 +486,13 @@ class DouyinMixin:
                 )
                 nodes.nodes.append(Node(uin=sender_uin, content=[merge_component]))
 
-            logger.debug(
+            logger.info(
                 "🚀 抖音合并消息准备发送%s: 节点数=%d", source_tag, len(nodes.nodes)
             )
             await event.send(MessageChain([nodes]))
         else:
             # 非合并转发（仅视频笔记可能走到这里）：只发送单独视频
-            logger.debug(
+            logger.info(
                 "🚀 抖音普通消息准备发送%s: 媒体数=%d",
                 source_tag,
                 len(media_components),

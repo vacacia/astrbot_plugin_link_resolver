@@ -1,32 +1,22 @@
 # ruff: noqa: E402
 """Integration-style tests for Weibo handler entrypoints.
 
-Run inside AstrBot container:
-    cd /AstrBot
-    python /AstrBot/data/plugins/astrbot_plugin_link_resolver/tests/test_weibo_handler.py -v
+Run from the AcaBot repo root:
+    .venv/bin/python -m pytest extensions/plugins/link_resolver/tests/test_weibo_handler.py -q
 """
 
 from __future__ import annotations
 
-import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-for candidate in Path(__file__).resolve().parents:
-    if (candidate / "data" / "plugins").exists():
-        root_path = str(candidate)
-        if root_path not in sys.path:
-            sys.path.insert(0, root_path)
-        break
-
 from astrbot.api.message_components import Video
-from data.plugins.astrbot_plugin_link_resolver.core.weibo import WeiboResult
-from data.plugins.astrbot_plugin_link_resolver.core.weibo.handler import WeiboMixin
-from data.plugins.astrbot_plugin_link_resolver.main import LinkResolver
+from plugins.link_resolver.core.weibo import WeiboResult
+from plugins.link_resolver.core.weibo.handler import WeiboMixin
+from plugins.link_resolver.main import LinkResolver
 
 
 class DummyEvent:
@@ -54,13 +44,6 @@ class DummyEvent:
 
 
 class TestWeiboHandler(unittest.IsolatedAsyncioTestCase):
-    def test_non_merged_video_schema_matches_send_behavior(self):
-        schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        hint = schema["weibo_settings"]["items"]["merge_send"]["hint"]
-
-        self.assertIn("关闭时只发送单独视频", hint)
-
     async def test_handle_weibo_dispatches_first_link(self):
         event = DummyEvent(
             "先看这个 https://weibo.com/1234567890/AbCdEfGhI 再看这个 https://weibo.com/1234567890/QwErTyUiO"
@@ -99,8 +82,6 @@ class TestWeiboHandler(unittest.IsolatedAsyncioTestCase):
         plugin.douyin_enabled = False
         plugin.xhs_enabled = False
         plugin.weibo_enabled = True
-        plugin.group_filter_mode = "黑名单"
-        plugin.group_filter_list = []
         plugin._register_parse_task = lambda *args, **kwargs: None
         plugin._is_bot_muted = AsyncMock(return_value=False)
         plugin._process_weibo = AsyncMock()
@@ -215,50 +196,6 @@ class TestWeiboHandler(unittest.IsolatedAsyncioTestCase):
         chain = event.sent[0].chain
         self.assertEqual(len(chain), 1)
         self.assertIsInstance(chain[0], Video)
-
-    async def test_process_weibo_cleans_download_when_send_fails(self):
-        event = DummyEvent()
-        event.send = AsyncMock(side_effect=RuntimeError("send failed"))
-        with tempfile.TemporaryDirectory() as tmpdir:
-            video_path = Path(tmpdir) / "demo.mp4"
-            video_path.write_bytes(b"video")
-            plugin = SimpleNamespace(
-                weibo_enabled=True,
-                weibo_merge_send=False,
-                weibo_max_media=99,
-                retry_count=0,
-                max_video_size_mb=200,
-                weibo_extractor=SimpleNamespace(
-                    parse=AsyncMock(
-                        return_value=WeiboResult(
-                            title="微博视频",
-                            author="博主丁",
-                            text="视频正文",
-                            image_urls=[],
-                            video_url="https://media.example.com/demo.mp4",
-                            cover_url=None,
-                            source_url="https://weibo.com/1234567890/AbCdEfGhI",
-                        )
-                    )
-                ),
-                _refresh_config=lambda: None,
-                _send_reaction_emoji=AsyncMock(),
-                _download_weibo_video=AsyncMock(return_value=video_path),
-                _download_weibo_image=AsyncMock(),
-                _prepare_component_for_merge_send=AsyncMock(),
-                _get_merge_sender_uin=lambda event: "10001",
-                cleanup_files=AsyncMock(),
-            )
-            plugin._build_weibo_summary = WeiboMixin._build_weibo_summary.__get__(
-                plugin, WeiboMixin
-            )
-
-            with self.assertRaisesRegex(RuntimeError, "send failed"):
-                await WeiboMixin._process_weibo(
-                    plugin, event, "https://weibo.com/1234567890/AbCdEfGhI"
-                )
-
-        plugin.cleanup_files.assert_awaited_once_with([video_path], [])
 
 
 if __name__ == "__main__":

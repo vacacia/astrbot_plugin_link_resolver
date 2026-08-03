@@ -1,25 +1,15 @@
 # ruff: noqa: E402
 """Unit tests for the Weibo extractor.
 
-Run inside AstrBot container:
-    cd /AstrBot
-    python /AstrBot/data/plugins/astrbot_plugin_link_resolver/tests/test_weibo_extractor.py -v
+Run from the AcaBot repo root:
+    .venv/bin/python -m pytest extensions/plugins/link_resolver/tests/test_weibo_extractor.py -q
 """
 
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 
-for candidate in Path(__file__).resolve().parents:
-    if (candidate / "data" / "plugins").exists():
-        root_path = str(candidate)
-        if root_path not in sys.path:
-            sys.path.insert(0, root_path)
-        break
-
-from data.plugins.astrbot_plugin_link_resolver.core.weibo import (
+from plugins.link_resolver.core.weibo import (
     WeiboExtractor,
     extract_weibo_links,
 )

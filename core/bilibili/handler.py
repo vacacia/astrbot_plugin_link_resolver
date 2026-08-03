@@ -160,10 +160,6 @@ class BilibiliMixin:
         if not candidates:
             fallback = "_720P"
             return fallback, getattr(VideoQuality, fallback)
-        candidates = [q for q in candidates if q.value is not None]
-        if not candidates:
-            fallback = "_720P"
-            return fallback, getattr(VideoQuality, fallback)
         best = max(candidates, key=lambda item: item.value)
         return best.name, best
 
@@ -179,18 +175,10 @@ class BilibiliMixin:
         if not candidates:
             fallback = "_720P"
             return fallback, getattr(VideoQuality, fallback)
-        candidates = [q for q in candidates if q.value is not None]
-        if not candidates:
-            fallback = "_720P"
-            return fallback, getattr(VideoQuality, fallback)
         lowest = min(candidates, key=lambda item: item.value)
         return lowest.name, lowest
 
     def _get_lower_qualities(self, current_quality: VideoQuality) -> list[VideoQuality]:
-        current_value = getattr(current_quality, "value", None)
-        if current_value is None:
-            return []
-
         candidates: list[VideoQuality] = []
         for quality in VideoQuality:
             name = quality.name.upper()
@@ -198,7 +186,7 @@ class BilibiliMixin:
                 continue
             if not self.allow_dolby and "DOLBY" in name:
                 continue
-            if quality.value is not None and quality.value < current_value:
+            if quality.value < current_quality.value:
                 candidates.append(quality)
         return sorted(candidates, key=lambda q: q.value, reverse=True)
 
@@ -515,7 +503,7 @@ class BilibiliMixin:
     # region B站视频处理
     @staticmethod
     def _normalize_bili_codecs_for_detector(download_url_data: dict) -> None:
-        """兼容 bilibili-api-python 17.4.1 无法识别 hvc1/hev1 的情况."""
+        """兼容 bilibili-api-python 17.4.1 无法识别 hvc1 导致 video_codecs=None。"""
         try:
             data = download_url_data.get("video_info") or download_url_data
             dash = data.get("dash") if isinstance(data, dict) else None
@@ -531,7 +519,7 @@ class BilibiliMixin:
                 if not isinstance(codecs, str):
                     continue
                 normalized = codecs.lower()
-                if normalized.startswith(("hvc1", "hev1")):
+                if normalized.startswith(("hvc1", "hev1")) and "hev" not in normalized:
                     item["codecs"] = f"hev {codecs}"
                     fixed += 1
 

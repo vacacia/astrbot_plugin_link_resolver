@@ -246,41 +246,38 @@ class WeiboMixin:
         is_image_post = bool(result.image_urls and not result.video_url)
         enable_merge_send = is_image_post or self.weibo_merge_send
 
-        try:
-            send_start = time.perf_counter()
-            if enable_merge_send:
-                nodes = Nodes([])
-                sender_uin = self._get_merge_sender_uin(event)
-                if summary_text:
-                    nodes.nodes.append(
-                        Node(uin=sender_uin, content=[Plain(summary_text)])
-                    )
-                for component in media_components:
-                    merge_component = await self._prepare_component_for_merge_send(
-                        component
-                    )
-                    nodes.nodes.append(Node(uin=sender_uin, content=[merge_component]))
-                await event.send(MessageChain([nodes]))
-            else:
-                await event.send(MessageChain([media_components[0]]))
+        send_start = time.perf_counter()
+        if enable_merge_send:
+            nodes = Nodes([])
+            sender_uin = self._get_merge_sender_uin(event)
+            if summary_text:
+                nodes.nodes.append(Node(uin=sender_uin, content=[Plain(summary_text)]))
+            for component in media_components:
+                merge_component = await self._prepare_component_for_merge_send(
+                    component
+                )
+                nodes.nodes.append(Node(uin=sender_uin, content=[merge_component]))
+            await event.send(MessageChain([nodes]))
+        else:
+            await event.send(MessageChain([media_components[0]]))
 
-            timing["send"] = time.perf_counter() - send_start
+        timing["send"] = time.perf_counter() - send_start
 
-            total_elapsed = time.perf_counter() - process_start
-            logger.info(
-                "🐦 微博处理完成%s: 标题=%s, 媒体=%d, 失败=%d | 耗时: 解析=%.2fs, 下载=%.2fs, 发送=%.2fs, 总计=%.2fs",
-                source_tag,
-                (result.title or "未知标题")[:20],
-                len(media_components),
-                failed_images,
-                timing.get("parse", 0),
-                timing.get("download", 0),
-                timing.get("send", 0),
-                total_elapsed,
-            )
-        finally:
-            if media_paths:
-                await self.cleanup_files(media_paths, [])
+        total_elapsed = time.perf_counter() - process_start
+        logger.info(
+            "🐦 微博处理完成%s: 标题=%s, 媒体=%d, 失败=%d | 耗时: 解析=%.2fs, 下载=%.2fs, 发送=%.2fs, 总计=%.2fs",
+            source_tag,
+            (result.title or "未知标题")[:20],
+            len(media_components),
+            failed_images,
+            timing.get("parse", 0),
+            timing.get("download", 0),
+            timing.get("send", 0),
+            total_elapsed,
+        )
+
+        if media_paths:
+            await self.cleanup_files(media_paths, [])
 
     async def handle_weibo(self, event: AstrMessageEvent) -> None:
         if not self.weibo_enabled:

@@ -8,6 +8,7 @@ __pycache__/
 # 插件数据目录
 cache/
 cookies/
+data/
 
 # 临时文件
 *.log

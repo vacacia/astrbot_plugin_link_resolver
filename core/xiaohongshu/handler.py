@@ -901,16 +901,30 @@ class XiaohongshuMixin:
         # 判断是否触发解合阈值
         threshold = getattr(self, "xhs_auto_unmerge_threshold_mb", 20)
         force_unmerge = False
-        if threshold > 0 and total_size_mb > threshold:
+        is_image_post = bool(image_paths)
+        if is_image_post and threshold > 0 and total_size_mb > threshold:
+            is_tool_invocation = getattr(event, "is_tool_invocation", None)
+            should_force_resolve = callable(is_tool_invocation) and is_tool_invocation()
+            if not should_force_resolve:
+                notice = (
+                    f"这篇有 {len(image_paths)} 张图片, 共 {total_size_mb:.2f} MB, "
+                    "全部展开会很大喵, 真的要解析吗?"
+                )
+                logger.info(
+                    "XHS 媒体总大小 (%.2fMB) 超过阈值 (%dMB), 自动解析改为询问",
+                    total_size_mb,
+                    threshold,
+                )
+                await self.cleanup_files(media_paths, [])
+                yield event.plain_result(notice)
+                return
             logger.info(
-                "XHS 媒体总大小 (%.2fMB) 超过阈值 (%dMB)，强制逐条发送",
+                "XHS 媒体总大小 (%.2fMB) 超过阈值 (%dMB), 工具解析强制逐条发送",
                 total_size_mb,
                 threshold,
             )
             force_unmerge = True
 
-        # 判断是否为图文笔记（有图片路径）
-        is_image_post = bool(image_paths)
         # 图文笔记始终合并转发；视频笔记根据配置决定
         # force_unmerge 仅对图文笔记生效（逐条发送图片）
         if is_image_post:

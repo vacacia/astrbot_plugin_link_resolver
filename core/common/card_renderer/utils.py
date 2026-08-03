@@ -16,15 +16,7 @@ from ..font_manager import (
 
 # region 字体查找
 def find_default_font() -> Path | None:
-    """查找可用的中文字体，跨发行版兼容。
-
-    优先级:
-    1. 用户配置字体
-    2. 插件托管字体
-    3. astrbot_plugin_parser 插件内置字体
-    4. 常见系统字体
-    5. fc-match :lang=zh 兜底
-    """
+    """查找可用的中文字体。"""
     plugin_root = Path(__file__).resolve().parents[4]
     user_fonts = get_user_font_paths()
     managed_fonts = get_managed_font_paths()
@@ -49,40 +41,11 @@ def find_default_font() -> Path | None:
         for font in (
             "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
             "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-            "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
-            "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
-            "/usr/share/fonts/opentype/source-han-sans/SourceHanSansSC-Regular.otf",
-            "/usr/share/fonts/opentype/source-han-sans/SourceHanSansCN-Regular.otf",
-            "/usr/share/fonts/truetype/arphic/uming.ttc",
-            "/usr/share/fonts/truetype/arphic/ukai.ttc",
-            "/System/Library/Fonts/PingFang.ttc",
-            "/System/Library/Fonts/STHeiti Medium.ttc",
-            "/Library/Fonts/Songti.ttc",
-            str(Path.home() / ".fonts/wqy-microhei.ttc"),
-            str(Path.home() / ".fonts/wqy-zenhei.ttc"),
-            str(Path.home() / ".local/share/fonts/wqy-microhei.ttc"),
-            str(Path.home() / ".local/share/fonts/wqy-zenhei.ttc"),
         )
     )
-
-    try:
-        import subprocess
-
-        result = subprocess.run(
-            ["fc-match", "-f", "%{file}", ":lang=zh"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            candidate = Path(result.stdout.strip())
-            if candidate.exists():
-                candidates.append(candidate)
-    except Exception:
-        pass
 
     for candidate in candidates:
         if candidate.exists() and _font_path_loadable(candidate, 24):
