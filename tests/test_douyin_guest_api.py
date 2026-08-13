@@ -1,3 +1,4 @@
+import json
 import sys
 import types
 from pathlib import Path
@@ -159,6 +160,78 @@ def test_video_url_selects_highest_resolution_then_keeps_lower_quality_fallbacks
         "gear_name": None,
         "candidate_count": 1,
     }
+
+
+@pytest.mark.asyncio
+async def test_share_live_photo_does_not_expose_background_audio_as_video(monkeypatch):
+    extractor = DouyinExtractor()
+    router_data = {
+        "loaderData": {
+            "note_(id)/page": {
+                "videoInfoRes": {
+                    "item_list": [
+                        {
+                            "aweme_id": "123",
+                            "create_time": 0,
+                            "author": {"nickname": "作者"},
+                            "desc": "动图",
+                            "video": {
+                                "play_addr": {
+                                    "url_list": ["https://example.com/music.mp3"]
+                                },
+                                "cover": {"url_list": []},
+                                "duration": 10,
+                            },
+                            "images": [
+                                {
+                                    "url_list": [
+                                        "https://example.com/image.jpg",
+                                        "https://backup.example.com/image.jpg",
+                                    ],
+                                    "video": {
+                                        "play_addr": {
+                                            "url_list": [
+                                                "https://example.com/live.mp4",
+                                                "https://backup.example.com/live.mp4",
+                                            ]
+                                        },
+                                        "cover": {"url_list": []},
+                                        "duration": 1,
+                                    },
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    html = f"<script>window._ROUTER_DATA = {json.dumps(router_data)}</script>"
+
+    async def fake_fetch_html(*_args, **_kwargs):
+        return httpx.Response(200, text=html)
+
+    monkeypatch.setattr(extractor, "_fetch_html", fake_fetch_html)
+
+    result = await extractor.parse_video(
+        "https://www.iesdouyin.com/share/note/123",
+        "https://www.douyin.com/note/123",
+    )
+
+    assert result.video_url is None
+    assert result.video_urls == []
+    assert result.image_url_candidates == [
+        [
+            "https://example.com/image.jpg",
+            "https://backup.example.com/image.jpg",
+        ]
+    ]
+    assert result.dynamic_url_candidates == [
+        [
+            "https://example.com/live.mp4",
+            "https://backup.example.com/live.mp4",
+        ]
+    ]
 
 
 @pytest.mark.asyncio

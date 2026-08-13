@@ -94,34 +94,65 @@ class XiaohongshuMixin:
         return any(p in text for p in retryable_patterns)
 
     async def _download_xhs_video(
-        self, url: str, request_id: str, referer: str | None = None
+        self,
+        urls: str | list[str],
+        request_id: str,
+        referer: str | None = None,
     ) -> Path:
+        candidates = [urls] if isinstance(urls, str) else list(dict.fromkeys(urls))
+        if not candidates:
+            raise RuntimeError("没有可用的小红书视频地址")
         max_bytes = (
             self.max_video_size_mb * 1024 * 1024 if self.max_video_size_mb > 0 else None
         )
-        size_mb = await self._estimate_total_size_mb(
-            url, None, headers=self._xhs_download_headers(referer)
+        output_path = self._build_xhs_path(
+            candidates[0], is_video=True, request_id=request_id
         )
-        logger.debug(
-            "📹 估算小红书视频大小: %s MB",
-            f"{size_mb:.2f}" if size_mb is not None else "未知",
-        )
-        if size_mb is not None and max_bytes and size_mb * 1024 * 1024 > max_bytes:
-            raise SizeLimitExceeded("超过大小限制")
-        output_path = self._build_xhs_path(url, is_video=True, request_id=request_id)
-        await self._download_stream(
-            url,
-            output_path,
-            cookies=None,
-            max_bytes=max_bytes,
-            headers=self._xhs_download_headers(referer),
-            retries=3,
-        )
-        return output_path
+        last_error: Exception | None = None
+        for index, url in enumerate(candidates):
+            try:
+                size_mb = await self._estimate_total_size_mb(
+                    url, None, headers=self._xhs_download_headers(referer)
+                )
+                logger.debug(
+                    "📹 估算小红书视频大小: %s MB",
+                    f"{size_mb:.2f}" if size_mb is not None else "未知",
+                )
+                if (
+                    size_mb is not None
+                    and max_bytes
+                    and size_mb * 1024 * 1024 > max_bytes
+                ):
+                    raise SizeLimitExceeded("超过大小限制")
+                await self._download_stream(
+                    url,
+                    output_path,
+                    cookies=None,
+                    max_bytes=max_bytes,
+                    headers=self._xhs_download_headers(referer),
+                    retries=3 if len(candidates) == 1 else 1,
+                )
+                return output_path
+            except asyncio.CancelledError:
+                raise
+            except SizeLimitExceeded:
+                raise
+            except Exception as exc:
+                last_error = exc
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "⚠️ 小红书视频地址不可用, 尝试候选地址 (%d/%d): %s",
+                        index + 1,
+                        len(candidates),
+                        str(exc),
+                    )
+        if last_error:
+            raise last_error
+        raise RuntimeError("小红书视频下载失败")
 
     async def _download_xhs_image(
         self,
-        url: str,
+        urls: str | list[str],
         request_id: str,
         file_id: str | None = None,
         referer: str | None = None,
@@ -133,6 +164,12 @@ class XiaohongshuMixin:
         2. 如果都失败：回退到多 CDN 兜底策略
         """
         start_time = time.perf_counter()
+        source_candidates = (
+            [urls] if isinstance(urls, str) else list(dict.fromkeys(urls))
+        )
+        if not source_candidates:
+            raise RuntimeError("没有可用的小红书图片地址")
+        url = source_candidates[0]
 
         output_path = self._build_xhs_path(url, is_video=False, request_id=request_id)
 
@@ -336,10 +373,13 @@ class XiaohongshuMixin:
         candidates = []
 
         # 1. 原始 URL (带签名)
-        raw_url = (
-            url.replace("http://", "https://", 1) if url.startswith("http://") else url
-        )
-        candidates.append({"url": raw_url, "desc": "Raw"})
+        for source_index, source_url in enumerate(source_candidates, start=1):
+            raw_url = (
+                source_url.replace("http://", "https://", 1)
+                if source_url.startswith("http://")
+                else source_url
+            )
+            candidates.append({"url": raw_url, "desc": f"Raw-{source_index}"})
 
         effective_id = file_id or token
         if effective_id:
@@ -702,7 +742,11 @@ class XiaohongshuMixin:
 
         title = result.title or "未知标题"
 
-        if not result.video_url and not result.image_urls and not result.live_photo_urls:
+        if (
+            not result.video_url
+            and not result.image_urls
+            and not result.live_photo_urls
+        ):
             logger.warning("⚠️ 小红书未找到可下载的媒体%s: %s", source_tag, target_link)
             return
 
@@ -720,7 +764,9 @@ class XiaohongshuMixin:
         if result.video_url:
             try:
                 video_path = await self._download_xhs_video(
-                    result.video_url, request_id, referer=result.source_url
+                    result.video_urls or [result.video_url],
+                    request_id,
+                    referer=result.source_url,
                 )
                 media_paths.append(video_path)
                 media_components.append(Video.fromFileSystem(str(video_path.resolve())))
@@ -730,8 +776,15 @@ class XiaohongshuMixin:
                 )
                 if cover_url:
                     try:
+                        cover_candidates = (
+                            result.image_url_candidates[0]
+                            if result.image_url_candidates
+                            else [cover_url]
+                        )
                         cover_path = await self._download_xhs_image(
-                            cover_url, request_id, referer=result.source_url
+                            cover_candidates,
+                            request_id,
+                            referer=result.source_url,
                         )
                         media_paths.append(cover_path)
                     except asyncio.CancelledError:
@@ -764,9 +817,17 @@ class XiaohongshuMixin:
                     i: int, url: str
                 ) -> tuple[int, Path | None, Exception | None]:
                     file_id = file_ids[i] if i < len(file_ids) else None
+                    candidates = (
+                        result.image_url_candidates[i]
+                        if i < len(result.image_url_candidates)
+                        else [url]
+                    )
                     try:
                         path = await self._download_xhs_image(
-                            url, request_id, file_id=file_id, referer=result.source_url
+                            candidates,
+                            request_id,
+                            file_id=file_id,
+                            referer=result.source_url,
                         )
                         return (i, path, None)
                     except asyncio.CancelledError:
@@ -800,8 +861,16 @@ class XiaohongshuMixin:
                 for i, url in enumerate(image_urls):
                     try:
                         file_id = file_ids[i] if i < len(file_ids) else None
+                        candidates = (
+                            result.image_url_candidates[i]
+                            if i < len(result.image_url_candidates)
+                            else [url]
+                        )
                         image_path = await self._download_xhs_image(
-                            url, request_id, file_id=file_id, referer=result.source_url
+                            candidates,
+                            request_id,
+                            file_id=file_id,
+                            referer=result.source_url,
                         )
                         image_paths.append(image_path)
                         media_paths.append(image_path)
@@ -822,8 +891,13 @@ class XiaohongshuMixin:
 
             for i, url in enumerate(live_photo_urls):
                 try:
+                    candidates = (
+                        result.live_photo_url_candidates[i]
+                        if i < len(result.live_photo_url_candidates)
+                        else [url]
+                    )
                     video_path = await self._download_xhs_video(
-                        url, request_id, referer=result.source_url
+                        candidates, request_id, referer=result.source_url
                     )
                     media_paths.append(video_path)
                     media_components.append(

@@ -80,6 +80,13 @@ class DouyinMixin:
             except asyncio.CancelledError:
                 raise
             except SizeLimitExceeded:
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "⚠️ 抖音视频候选超过大小限制, 尝试后续低画质/备用地址 (%d/%d)",
+                        index + 1,
+                        len(candidates),
+                    )
+                    continue
                 raise
             except Exception as exc:
                 last_error = exc
@@ -94,14 +101,41 @@ class DouyinMixin:
             raise last_error
         raise RuntimeError("抖音视频下载失败")
 
-    async def _download_douyin_image(self, url: str, request_id: str) -> Path:
+    async def _download_douyin_image(
+        self, urls: str | list[str], request_id: str
+    ) -> Path:
+        candidates = [urls] if isinstance(urls, str) else list(dict.fromkeys(urls))
+        if not candidates:
+            raise RuntimeError("没有可用的抖音图片地址")
         output_path = self._build_douyin_path(
-            url, is_video=False, request_id=request_id
+            candidates[0], is_video=False, request_id=request_id
         )
-        await self._download_stream(
-            url, output_path, cookies=None, max_bytes=None, headers=ANDROID_HEADERS
-        )
-        return output_path
+        last_error: Exception | None = None
+        for index, url in enumerate(candidates):
+            try:
+                await self._download_stream(
+                    url,
+                    output_path,
+                    cookies=None,
+                    max_bytes=None,
+                    headers=ANDROID_HEADERS,
+                    retries=3 if len(candidates) == 1 else 1,
+                )
+                return output_path
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "⚠️ 抖音图片地址不可用, 尝试候选地址 (%d/%d): %s",
+                        index + 1,
+                        len(candidates),
+                        str(exc),
+                    )
+        if last_error:
+            raise last_error
+        raise RuntimeError("抖音图片下载失败")
 
     async def _download_douyin_cover(
         self, cover_url: str, request_id: str
@@ -353,7 +387,14 @@ class DouyinMixin:
             for i, url in enumerate(image_urls):
                 try:
                     img_start = time.perf_counter()
-                    image_path = await self._download_douyin_image(url, request_id)
+                    candidates = (
+                        result.image_url_candidates[i]
+                        if i < len(result.image_url_candidates)
+                        else [url]
+                    )
+                    image_path = await self._download_douyin_image(
+                        candidates, request_id
+                    )
                     media_paths.append(image_path)
                     media_components.append(
                         Image.fromFileSystem(str(image_path.resolve()))

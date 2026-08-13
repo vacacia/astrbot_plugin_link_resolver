@@ -106,8 +106,8 @@ class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
                     side_effect=[RuntimeError("第一个地址不可用"), 1024]
                 ),
             )
-            plugin._download_douyin_video = (
-                DouyinMixin._download_douyin_video.__get__(plugin, DouyinMixin)
+            plugin._download_douyin_video = DouyinMixin._download_douyin_video.__get__(
+                plugin, DouyinMixin
             )
 
             result = await plugin._download_douyin_video(
@@ -121,6 +121,59 @@ class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
                 ["https://example.com/first", "https://example.com/second"],
             )
 
+    async def test_douyin_video_download_falls_back_when_high_quality_is_too_large(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "video.mp4"
+            plugin = SimpleNamespace(
+                max_video_size_mb=200,
+                _build_douyin_path=lambda *_args, **_kwargs: output_path,
+                _estimate_total_size_mb=AsyncMock(side_effect=[300.0, 100.0]),
+                _download_stream=AsyncMock(return_value=1024),
+            )
+            plugin._download_douyin_video = DouyinMixin._download_douyin_video.__get__(
+                plugin, DouyinMixin
+            )
+
+            result = await plugin._download_douyin_video(
+                ["https://example.com/4k", "https://example.com/1080p"],
+                "request",
+            )
+
+            self.assertEqual(result, output_path)
+            self.assertEqual(
+                plugin._download_stream.await_args.args[0],
+                "https://example.com/1080p",
+            )
+
+    async def test_douyin_image_download_falls_back_to_next_candidate(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "image.jpg"
+            plugin = SimpleNamespace(
+                _build_douyin_path=lambda *_args, **_kwargs: output_path,
+                _download_stream=AsyncMock(
+                    side_effect=[RuntimeError("第一个地址不可用"), 1024]
+                ),
+            )
+            plugin._download_douyin_image = DouyinMixin._download_douyin_image.__get__(
+                plugin, DouyinMixin
+            )
+
+            result = await plugin._download_douyin_image(
+                ["https://example.com/first.jpg", "https://example.com/second.jpg"],
+                "request",
+            )
+
+            self.assertEqual(result, output_path)
+            self.assertEqual(
+                [call.args[0] for call in plugin._download_stream.await_args_list],
+                [
+                    "https://example.com/first.jpg",
+                    "https://example.com/second.jpg",
+                ],
+            )
+
     async def test_xhs_extracts_live_photo_video(self):
         extractor = XiaohongshuExtractor()
 
@@ -131,9 +184,7 @@ class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
                     {
                         "urlDefault": "https://example.com/image.jpg",
                         "stream": {
-                            "h264": [
-                                {"masterUrl": "https://example.com/live.mp4"}
-                            ]
+                            "h264": [{"masterUrl": "https://example.com/live.mp4"}]
                         },
                     }
                 ],
@@ -142,9 +193,110 @@ class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.image_urls, ["https://example.com/image.jpg"])
-        self.assertEqual(
-            result.live_photo_urls, ["https://example.com/live.mp4"]
+        self.assertEqual(result.live_photo_urls, ["https://example.com/live.mp4"])
+
+    async def test_xhs_preserves_stream_and_image_backup_urls(self):
+        extractor = XiaohongshuExtractor()
+
+        result = extractor._build_result_from_note(
+            {
+                "type": "normal",
+                "imageList": [
+                    {
+                        "urlDefault": "https://example.com/default.jpg!style",
+                        "url": "https://example.com/fallback.jpg",
+                        "stream": {
+                            "h264": [
+                                {
+                                    "masterUrl": "https://example.com/live.mp4",
+                                    "backupUrls": [
+                                        "https://backup.example.com/live.mp4"
+                                    ],
+                                }
+                            ]
+                        },
+                    }
+                ],
+            },
+            "https://www.xiaohongshu.com/explore/demo",
         )
+
+        self.assertEqual(
+            result.image_url_candidates,
+            [["https://example.com/default.jpg", "https://example.com/fallback.jpg"]],
+        )
+        self.assertEqual(
+            result.live_photo_url_candidates,
+            [
+                [
+                    "https://example.com/live.mp4",
+                    "https://backup.example.com/live.mp4",
+                ]
+            ],
+        )
+
+    async def test_xhs_preserves_video_backup_urls_by_codec_priority(self):
+        extractor = XiaohongshuExtractor()
+
+        result = extractor._build_result_from_note(
+            {
+                "type": "video",
+                "video": {
+                    "media": {
+                        "stream": {
+                            "h264": [{"masterUrl": "https://example.com/h264.mp4"}],
+                            "h265": [
+                                {
+                                    "masterUrl": "https://example.com/h265.mp4",
+                                    "backupUrl": "https://backup.example.com/h265.mp4",
+                                }
+                            ],
+                        }
+                    }
+                },
+            },
+            "https://www.xiaohongshu.com/explore/demo",
+        )
+
+        self.assertEqual(
+            result.video_urls,
+            [
+                "https://example.com/h265.mp4",
+                "https://backup.example.com/h265.mp4",
+                "https://example.com/h264.mp4",
+            ],
+        )
+        self.assertEqual(result.video_url, result.video_urls[0])
+
+    async def test_xhs_video_download_falls_back_to_next_candidate(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "video.mp4"
+            plugin = SimpleNamespace(
+                max_video_size_mb=200,
+                _build_xhs_path=lambda *_args, **_kwargs: output_path,
+                _xhs_download_headers=lambda *_args: {},
+                _estimate_total_size_mb=AsyncMock(return_value=None),
+                _download_stream=AsyncMock(
+                    side_effect=[RuntimeError("第一个地址不可用"), 1024]
+                ),
+            )
+            plugin._download_xhs_video = XiaohongshuMixin._download_xhs_video.__get__(
+                plugin, XiaohongshuMixin
+            )
+
+            result = await plugin._download_xhs_video(
+                ["https://example.com/first.mp4", "https://example.com/second.mp4"],
+                "request",
+            )
+
+            self.assertEqual(result, output_path)
+            self.assertEqual(
+                [call.args[0] for call in plugin._download_stream.await_args_list],
+                [
+                    "https://example.com/first.mp4",
+                    "https://example.com/second.mp4",
+                ],
+            )
 
     async def test_build_xhs_summary_strips_topic_marker_inside_hashtags_only(self):
         plugin = SimpleNamespace()

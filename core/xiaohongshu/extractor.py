@@ -12,7 +12,9 @@ from astrbot.api import logger
 
 # region 常量
 XHS_REQUEST_TIMEOUT_SEC = 30.0
-XHS_SHORT_LINK_PATTERN = r"(?:https?://)?(?:www\.)?xhslink\.(?:com|cn)/[A-Za-z0-9._?%&+=/#@-]+"
+XHS_SHORT_LINK_PATTERN = (
+    r"(?:https?://)?(?:www\.)?xhslink\.(?:com|cn)/[A-Za-z0-9._?%&+=/#@-]+"
+)
 XHS_MESSAGE_PATTERN = (
     r"(?s).*(?:"
     + XHS_SHORT_LINK_PATTERN
@@ -59,12 +61,13 @@ _EXPLORE_HEADERS = {
 }
 
 
-
 _SHORT_RE = re.compile(XHS_SHORT_LINK_PATTERN, re.IGNORECASE)
-_NOTE_ID_RE = re.compile(r"/(?:explore|discovery/item)/(?P<id>[0-9a-zA-Z]+)", re.IGNORECASE)
+_NOTE_ID_RE = re.compile(
+    r"/(?:explore|discovery/item)/(?P<id>[0-9a-zA-Z]+)", re.IGNORECASE
+)
 _LONG_RE = re.compile(
     r"(?:https?://)?(?:www\.)?xiaohongshu\.com/(?:explore|discovery/item)/[0-9a-zA-Z]+[A-Za-z0-9._%?&+=/#@-]*",
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 # endregion
 
@@ -101,6 +104,9 @@ class XiaohongshuResult:
     source_url: str
     note_id: str | None = None
     live_photo_urls: list[str] = field(default_factory=list)
+    image_url_candidates: list[list[str]] = field(default_factory=list)
+    video_urls: list[str] = field(default_factory=list)
+    live_photo_url_candidates: list[list[str]] = field(default_factory=list)
 
 
 class XiaohongshuParseError(RuntimeError):
@@ -111,6 +117,8 @@ class XiaohongshuRetryableError(XiaohongshuParseError):
     """可重试的解析错误（网络抖动、临时服务异常等）"""
 
     pass
+
+
 # endregion
 
 
@@ -163,17 +171,27 @@ class XiaohongshuExtractor:
     async def _get_redirect_url(self, url: str) -> str:
         """获取短链接重定向目标（单次重定向）"""
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout, cookies=None) as session:
-                async with session.get(url, headers=XHS_HEADERS, allow_redirects=False) as resp:
+            async with aiohttp.ClientSession(
+                timeout=self.timeout, cookies=None
+            ) as session:
+                async with session.get(
+                    url, headers=XHS_HEADERS, allow_redirects=False
+                ) as resp:
                     if resp.status in (429,) or resp.status >= 500:
-                        raise XiaohongshuRetryableError(f"短链接请求临时失败: {resp.status}")
+                        raise XiaohongshuRetryableError(
+                            f"短链接请求临时失败: {resp.status}"
+                        )
                     if resp.status >= 400:
                         raise XiaohongshuParseError(f"短链接请求失败: {resp.status}")
                     location = resp.headers.get("Location", url)
                     return location
         except asyncio.TimeoutError as e:
             timeout_sec = getattr(self.timeout, "total", None)
-            timeout_label = f"{timeout_sec:.0f}s" if isinstance(timeout_sec, (int, float)) else "unknown"
+            timeout_label = (
+                f"{timeout_sec:.0f}s"
+                if isinstance(timeout_sec, (int, float))
+                else "unknown"
+            )
             raise XiaohongshuRetryableError(f"短链接跳转超时 ({timeout_label})") from e
         except aiohttp.ClientError as e:
             raise XiaohongshuRetryableError(f"短链接请求网络异常: {e}") from e
@@ -181,18 +199,30 @@ class XiaohongshuExtractor:
     async def _parse_explore(self, url: str, note_id: str) -> XiaohongshuResult:
         """解析 explore 页面"""
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout, cookies=None) as session:
+            async with aiohttp.ClientSession(
+                timeout=self.timeout, cookies=None
+            ) as session:
                 async with session.get(url, headers=_EXPLORE_HEADERS) as resp:
-                    logger.debug("XHS explore url: %s, status: %s", resp.url, resp.status)
+                    logger.debug(
+                        "XHS explore url: %s, status: %s", resp.url, resp.status
+                    )
                     if resp.status in (429,) or resp.status >= 500:
-                        raise XiaohongshuRetryableError(f"explore 页面临时失败: {resp.status}")
+                        raise XiaohongshuRetryableError(
+                            f"explore 页面临时失败: {resp.status}"
+                        )
                     if resp.status != 200:
                         raise XiaohongshuParseError(f"页面请求失败: {resp.status}")
                     html = await resp.text()
         except asyncio.TimeoutError as e:
             timeout_sec = getattr(self.timeout, "total", None)
-            timeout_label = f"{timeout_sec:.0f}s" if isinstance(timeout_sec, (int, float)) else "unknown"
-            raise XiaohongshuRetryableError(f"explore 页面请求超时 ({timeout_label})") from e
+            timeout_label = (
+                f"{timeout_sec:.0f}s"
+                if isinstance(timeout_sec, (int, float))
+                else "unknown"
+            )
+            raise XiaohongshuRetryableError(
+                f"explore 页面请求超时 ({timeout_label})"
+            ) from e
         except aiohttp.ClientError as e:
             raise XiaohongshuRetryableError(f"explore 页面网络异常: {e}") from e
 
@@ -213,18 +243,32 @@ class XiaohongshuExtractor:
     async def _parse_discovery(self, url: str) -> XiaohongshuResult:
         """解析 discovery 页面"""
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout, cookies=None) as session:
-                async with session.get(url, headers=XHS_HEADERS, allow_redirects=True) as resp:
-                    logger.debug("XHS discovery url: %s, status: %s", resp.url, resp.status)
+            async with aiohttp.ClientSession(
+                timeout=self.timeout, cookies=None
+            ) as session:
+                async with session.get(
+                    url, headers=XHS_HEADERS, allow_redirects=True
+                ) as resp:
+                    logger.debug(
+                        "XHS discovery url: %s, status: %s", resp.url, resp.status
+                    )
                     if resp.status in (429,) or resp.status >= 500:
-                        raise XiaohongshuRetryableError(f"discovery 页面临时失败: {resp.status}")
+                        raise XiaohongshuRetryableError(
+                            f"discovery 页面临时失败: {resp.status}"
+                        )
                     if resp.status != 200:
                         raise XiaohongshuParseError(f"页面请求失败: {resp.status}")
                     html = await resp.text()
         except asyncio.TimeoutError as e:
             timeout_sec = getattr(self.timeout, "total", None)
-            timeout_label = f"{timeout_sec:.0f}s" if isinstance(timeout_sec, (int, float)) else "unknown"
-            raise XiaohongshuRetryableError(f"discovery 页面请求超时 ({timeout_label})") from e
+            timeout_label = (
+                f"{timeout_sec:.0f}s"
+                if isinstance(timeout_sec, (int, float))
+                else "unknown"
+            )
+            raise XiaohongshuRetryableError(
+                f"discovery 页面请求超时 ({timeout_label})"
+            ) from e
         except aiohttp.ClientError as e:
             raise XiaohongshuRetryableError(f"discovery 页面网络异常: {e}") from e
 
@@ -272,8 +316,10 @@ class XiaohongshuExtractor:
         # 图片列表 - 获取 URL 和 fileId
         image_list = note.get("imageList") or []
         image_urls = []
+        image_url_candidates = []
         file_ids = []
         live_photo_urls = []
+        live_photo_url_candidates = []
         for i, img in enumerate(image_list):
             if isinstance(img, dict):
                 # 记录详细的图片数据以便排查旧版笔记
@@ -283,17 +329,20 @@ class XiaohongshuExtractor:
                 img_url = self._get_original_image_url(img)
                 if img_url:
                     image_urls.append(img_url)
+                    image_url_candidates.append(self._extract_image_urls(img))
                 # 获取 fileId 用于尝试原图
                 file_id = self._get_file_id_from_image(img)
                 file_ids.append(file_id)  # 可能是 None，保持索引对应
-                live_photo_url = self._extract_stream_url(img.get("stream"))
-                if live_photo_url:
-                    live_photo_urls.append(live_photo_url)
+                live_photo_candidates = self._extract_stream_urls(img.get("stream"))
+                if live_photo_candidates:
+                    live_photo_urls.append(live_photo_candidates[0])
+                    live_photo_url_candidates.append(live_photo_candidates)
 
         logger.debug("XHS Extracted file_ids: %s", file_ids)
 
         # 视频
-        video_url = self._extract_video_url(note)
+        video_urls = self._extract_video_urls(note)
+        video_url = video_urls[0] if video_urls else None
 
         # 封面（视频的第一帧或第一张图片）
         cover_url = None
@@ -301,10 +350,9 @@ class XiaohongshuExtractor:
             # preload 中的图片通常是无水印的
             preload_images = preload.get("imagesList") or []
             if preload_images and isinstance(preload_images[0], dict):
-                cover_url = (
-                    preload_images[0].get("urlSizeLarge")
-                    or preload_images[0].get("url")
-                )
+                cover_url = preload_images[0].get("urlSizeLarge") or preload_images[
+                    0
+                ].get("url")
         if not cover_url and image_urls:
             cover_url = image_urls[0]
 
@@ -330,32 +378,39 @@ class XiaohongshuExtractor:
             source_url=source_url,
             note_id=note_id,
             live_photo_urls=live_photo_urls,
+            image_url_candidates=image_url_candidates,
+            video_urls=video_urls,
+            live_photo_url_candidates=live_photo_url_candidates,
         )
+
+    def _extract_image_urls(self, img: dict[str, Any]) -> list[str]:
+        candidates: list[str] = []
+        for key in ("urlDefault", "url", "urlPre"):
+            url = img.get(key)
+            if not isinstance(url, str) or not url:
+                continue
+            clean_url = url.split("!", 1)[0]
+            if clean_url not in candidates:
+                candidates.append(clean_url)
+        return candidates
 
     def _get_original_image_url(self, img: dict[str, Any]) -> str | None:
         """从图片对象获取最佳图片 URL
-        
+
         优先级：
         1. urlDefault (高清，通常可用)
         2. url (普通)
         如果有 cookies，会在 handler 层尝试 ci.xiaohongshu.com 原图
         """
         # 优先使用 urlDefault（高清预览，通常可用）
-        url = img.get("urlDefault") or img.get("url")
-        if not url:
-            return None
-        
-        # 清理样式后缀以获得更高清的图片
-        if "!" in url:
-            url = url.split("!", 1)[0]
-        
-        return url
+        candidates = self._extract_image_urls(img)
+        return candidates[0] if candidates else None
 
     def _get_file_id_from_image(self, img: dict[str, Any]) -> str | None:
         """从图片对象提取 fileId，用于构建原图 URL"""
         # 1. 尝试从字段获取
         file_id = img.get("fileId") or img.get("file_id") or img.get("traceId")
-        
+
         # 2. 如果字段没有，从 urlDefault / url / urlPre 中提取
         if not file_id:
             for key in ("urlDefault", "url", "urlPre"):
@@ -366,10 +421,10 @@ class XiaohongshuExtractor:
                         file_id = extracted
                         # logger.debug("XHS 从 URL %s 提取到 fileId: %s", key, file_id)
                         break
-        
+
         if file_id and "!" in file_id:
             file_id = file_id.split("!", 1)[0]
-            
+
         return file_id
 
     @staticmethod
@@ -381,62 +436,85 @@ class XiaohongshuExtractor:
         # 1. .../spectrum/1040g0k...
         # 2. .../notes_pre_post/1040g0k...
         # 3. .../1040g0k... (直接文件名)
-        
+
         # 匹配 spectrum 后的 id
         if "spectrum/" in url:
             match = re.search(r"spectrum/([a-zA-Z0-9]+)", url)
             if match:
                 return match.group(1)
-                
+
         # 匹配直接的文件名（通常是20位以上的字母数字组合）
         # 排除 !style, ? 等后缀
         base_name = url.split("?")[0].split("!")[0]
         base_name = base_name.split("/")[-1]
-        
+
         if len(base_name) > 20 and re.match(r"^[a-zA-Z0-9]+$", base_name):
             return base_name
-            
+
         return None
 
     def _extract_video_url(self, note: dict[str, Any]) -> str | None:
         """提取视频URL"""
+        urls = self._extract_video_urls(note)
+        return urls[0] if urls else None
+
+    def _extract_video_urls(self, note: dict[str, Any]) -> list[str]:
+        """按编码优先级提取视频及其备用 URL。"""
         if note.get("type") != "video":
-            return None
+            return []
 
         video = note.get("video")
         if not isinstance(video, dict):
-            return None
+            return []
 
         media = video.get("media")
         if not isinstance(media, dict):
-            return None
+            return []
 
-        return self._extract_stream_url(media.get("stream"), prefer_h265=True)
+        return self._extract_stream_urls(media.get("stream"), prefer_h265=True)
 
     @staticmethod
-    def _extract_stream_url(
-        stream: Any, *, prefer_h265: bool = False
-    ) -> str | None:
-        if not isinstance(stream, dict):
-            return None
-        codecs = ("h265", "h264", "av1", "h266") if prefer_h265 else (
-            "h264",
-            "h265",
-            "av1",
-            "h266",
+    def _extract_stream_url(stream: Any, *, prefer_h265: bool = False) -> str | None:
+        urls = XiaohongshuExtractor._extract_stream_urls(
+            stream, prefer_h265=prefer_h265
         )
+        return urls[0] if urls else None
+
+    @staticmethod
+    def _extract_stream_urls(stream: Any, *, prefer_h265: bool = False) -> list[str]:
+        if not isinstance(stream, dict):
+            return []
+        codecs = (
+            ("h265", "h264", "av1", "h266")
+            if prefer_h265
+            else (
+                "h264",
+                "h265",
+                "av1",
+                "h266",
+            )
+        )
+        candidates: list[str] = []
         for codec in codecs:
             codec_streams = stream.get(codec)
             if isinstance(codec_streams, list):
                 for codec_stream in codec_streams:
                     if not isinstance(codec_stream, dict):
                         continue
-                    master_url = codec_stream.get("masterUrl")
-                    if master_url:
-                        logger.debug("XHS video codec: %s", codec)
-                        return master_url
+                    urls = [codec_stream.get("masterUrl")]
+                    backup_urls = codec_stream.get("backupUrls") or codec_stream.get(
+                        "backupUrl"
+                    )
+                    if isinstance(backup_urls, str):
+                        urls.append(backup_urls)
+                    elif isinstance(backup_urls, list):
+                        urls.extend(backup_urls)
+                    for url in urls:
+                        if isinstance(url, str) and url and url not in candidates:
+                            candidates.append(url)
+                            logger.debug("XHS video codec: %s", codec)
 
-        return None
+        return candidates
 
 
 # 导出

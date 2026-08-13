@@ -75,6 +75,7 @@ class DouyinResult:
     item_id: str | None = None
     comments: int | None = None
     video_urls: list[str] = field(default_factory=list)
+    image_url_candidates: list[list[str]] = field(default_factory=list)
     dynamic_url_candidates: list[list[str]] = field(default_factory=list)
 
 
@@ -237,8 +238,15 @@ class DouyinExtractor:
         router_data = msgspec.json.decode(matched.group(1).strip(), type=RouterData)
         video_data = router_data.video_data
 
+        image_url_candidates = video_data.image_url_candidates
         image_urls = video_data.image_urls
+        dynamic_url_candidates = video_data.dynamic_url_candidates
+        dynamic_urls = [urls[0] for urls in dynamic_url_candidates]
+        video_urls = video_data.video_urls
         video_url = video_data.video_url
+        if image_urls or dynamic_urls:
+            video_urls = []
+            video_url = None
         cover_url = video_data.cover_url
         duration = video_data.video.duration if video_data.video else 0
 
@@ -250,9 +258,12 @@ class DouyinExtractor:
             video_url=video_url,
             cover_url=cover_url,
             image_urls=image_urls,
-            dynamic_urls=[],
+            dynamic_urls=dynamic_urls,
             source_url=source_url,
             item_id=video_data.aweme_id,
+            video_urls=video_urls,
+            image_url_candidates=image_url_candidates,
+            dynamic_url_candidates=dynamic_url_candidates,
         )
 
     async def parse_iteminfo(self, video_id: str, source_url: str) -> DouyinResult:
@@ -321,13 +332,20 @@ class DouyinExtractor:
         duration = item.get("duration") or video.get("duration") or 0
 
         image_urls: list[str] = []
+        image_url_candidates: list[list[str]] = []
         dynamic_urls: list[str] = []
         dynamic_url_candidates: list[list[str]] = []
         for image in item.get("images") or []:
-            url_list = image.get("url_list") or []
-            image_url = self._pick_url(url_list)
-            if image_url:
-                image_urls.append(image_url)
+            image_candidates = list(
+                dict.fromkeys(
+                    url
+                    for url in image.get("url_list") or []
+                    if isinstance(url, str) and url
+                )
+            )
+            if image_candidates:
+                image_urls.append(image_candidates[0])
+                image_url_candidates.append(image_candidates)
             image_video = image.get("video") or {}
             image_plays = self._order_video_urls(
                 (image_video.get("play_addr") or {}).get("url_list")
@@ -335,6 +353,10 @@ class DouyinExtractor:
             if image_plays:
                 dynamic_urls.append(image_plays[0])
                 dynamic_url_candidates.append(image_plays)
+
+        if image_urls or dynamic_urls:
+            video_urls = []
+            video_url = None
 
         # 提取统计数据
         statistics = item.get("statistics") or {}
@@ -355,6 +377,7 @@ class DouyinExtractor:
             comments=comments,
             item_id=video_id,
             video_urls=video_urls,
+            image_url_candidates=image_url_candidates,
             dynamic_url_candidates=dynamic_url_candidates,
         )
 
@@ -387,6 +410,8 @@ class DouyinExtractor:
             image_urls=slides.image_urls,
             dynamic_urls=slides.dynamic_urls,
             source_url=source_url,
+            image_url_candidates=slides.image_url_candidates,
+            dynamic_url_candidates=slides.dynamic_url_candidates,
         )
 
     @staticmethod
