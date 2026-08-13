@@ -3,15 +3,15 @@
 [![AstrBot Plugin](https://img.shields.io/badge/AstrBot-Plugin-blue?style=flat-square)](https://github.com/AstrBotDevs/AstrBot)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat-square)](LICENSE)
 
-支持监听聊天中的 **B站** / **抖音** / **小红书** / **微博** / **X** 链接，自动解析并发送视频或图集。无需命令，发送链接即可触发。
+支持监听聊天中的 **B站** / **抖音** / **小红书** / **微博** / **X** 链接，自动解析并发送视频、图集或动图。无需命令，发送链接即可触发。
 
 ---
 
 ## ✨ 特性
 
 - 📺 **B站视频解析**：支持多种画质选择，支持多P视频批量下载
-- 🎵 **抖音解析**：支持视频和图文笔记，自动下载并发送
-- 📕 **小红书原图解析**：支持视频和图文笔记，可下载原图
+- 🎵 **抖音解析**：支持视频、图文和动图，无需配置 Cookie，优先下载最高画质并自动尝试备用地址
+- 📕 **小红书原图解析**：支持视频、图文和 Live Photo，可下载原图并自动尝试备用地址
 - 🚦 **群过滤(黑/白名单)**：按群号控制哪些群启用解析，私聊不受影响
 - 🐦 **微博解析**：支持单条微博正文、图片、视频，默认原图优先
 - 𝕏 **X 解析**：支持 `twitter.com` / `x.com` 推文图片和视频解析
@@ -138,13 +138,19 @@ ffmpeg -version
 
 - `bilibili.com/video/BV...`、`b23.tv/...`、`bili2233.cn/...`
 - `douyin.com/video/...`、`douyin.com/note/...`、`v.douyin.com/...`
-- `xiaohongshu.com/explore/...`、`xiaohongshu.com/discovery/item/...`、`xhslink.com/...`
+- `xiaohongshu.com/explore/...`、`xiaohongshu.com/discovery/item/...`、`xhslink.com/...`、`xhslink.cn/...`
 - `weibo.com/<uid>/<mblogid>`
 - `m.weibo.cn/detail/<mblogid>`
 - `m.weibo.cn/status/<mblogid>`
 - `weibo.cn/<mblogid>`
 - `twitter.com/<user>/status/<id>`
 - `x.com/<user>/status/<id>`
+
+抖音动图和小红书 Live Photo 会同时发送静态图片与对应的动态视频。实际消息形式取决于平台内容和消息适配器支持情况。
+
+### 动图与合并转发
+
+抖音动图和小红书 Live Photo 包含图片与视频。解析和下载完成后，媒体发送仍依赖 AstrBot 使用的消息适配器。若日志显示媒体已经下载完成，但消息长时间没有发出，请继续检查适配器的媒体上传日志。
 
 ### X 默认行为
 
@@ -257,7 +263,7 @@ OpenMoji-black-glyf.ttf
 
 - [astrbot_plugin_parser](https://github.com/Zhalslar/astrbot_plugin_parser)
 - [XHS-Downloader](https://github.com/JoeanAmier/XHS-Downloader) — 小红书图片下载参考实现
-- [Johnserf-Seed/f2](https://github.com/Johnserf-Seed/f2) — 微博详情接口与访客 Cookie 参考实现
+- [Johnserf-Seed/f2](https://github.com/Johnserf-Seed/f2) — 抖音游客请求签名、微博详情接口与访客 Cookie 参考实现
 - [dataabc/weibo-crawler](https://github.com/dataabc/weibo-crawler) — 微博原图/视频字段与公开抓取思路参考
 
 ---

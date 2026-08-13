@@ -875,4 +875,3 @@ if __name__ == "__main__":
     #     BrowserFingerprintGenerator.generate_fingerprint("Chrome")
     # end = time.time()
     # print("生成100个指纹所需时间:", end - start)  # 生成100个指纹所需时间: 0.00400090217590332
-
