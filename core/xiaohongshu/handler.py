@@ -109,6 +109,7 @@ class XiaohongshuMixin:
             candidates[0], is_video=True, request_id=request_id
         )
         last_error: Exception | None = None
+        size_limit_error: SizeLimitExceeded | None = None
         for index, url in enumerate(candidates):
             try:
                 size_mb = await self._estimate_total_size_mb(
@@ -130,12 +131,20 @@ class XiaohongshuMixin:
                     cookies=None,
                     max_bytes=max_bytes,
                     headers=self._xhs_download_headers(referer),
-                    retries=3 if len(candidates) == 1 else 1,
+                    retries=max(1, int(getattr(self, "retry_count", 3))),
                 )
                 return output_path
             except asyncio.CancelledError:
                 raise
-            except SizeLimitExceeded:
+            except SizeLimitExceeded as exc:
+                size_limit_error = exc
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "⚠️ 小红书视频候选超过大小限制, 尝试后续编码/备用地址 (%d/%d)",
+                        index + 1,
+                        len(candidates),
+                    )
+                    continue
                 raise
             except Exception as exc:
                 last_error = exc
@@ -148,6 +157,8 @@ class XiaohongshuMixin:
                     )
         if last_error:
             raise last_error
+        if size_limit_error:
+            raise size_limit_error
         raise RuntimeError("小红书视频下载失败")
 
     async def _download_xhs_image(
@@ -779,6 +790,8 @@ class XiaohongshuMixin:
                         cover_candidates = (
                             result.image_url_candidates[0]
                             if result.image_url_candidates
+                            and result.image_urls
+                            and cover_url == result.image_urls[0]
                             else [cover_url]
                         )
                         cover_path = await self._download_xhs_image(

@@ -301,6 +301,7 @@ class DouyinExtractor:
         play_addr = (
             video.get("play_addr")
             or video.get("play_addr_h264")
+            or video.get("play_addr_h265")
             or video.get("play_addr_lowbr")
             or {}
         )
@@ -347,9 +348,18 @@ class DouyinExtractor:
                 image_urls.append(image_candidates[0])
                 image_url_candidates.append(image_candidates)
             image_video = image.get("video") or {}
-            image_plays = self._order_video_urls(
-                (image_video.get("play_addr") or {}).get("url_list")
-            )
+            image_plays: list[str] = []
+            for key in (
+                "play_addr",
+                "play_addr_h264",
+                "play_addr_h265",
+                "play_addr_lowbr",
+            ):
+                for url in self._order_video_urls(
+                    (image_video.get(key) or {}).get("url_list")
+                ):
+                    if url not in image_plays:
+                        image_plays.append(url)
             if image_plays:
                 dynamic_urls.append(image_plays[0])
                 dynamic_url_candidates.append(image_plays)
@@ -474,11 +484,20 @@ class DouyinExtractor:
                 if url not in candidates:
                     candidates.append(url)
 
-        for url in DouyinExtractor._order_video_urls(
-            fallback_play_addr.get("url_list")
-        ):
-            if url not in candidates:
-                candidates.append(url)
+        fallback_addrs = [
+            video.get(key) or {}
+            for key in (
+                "play_addr",
+                "play_addr_h264",
+                "play_addr_h265",
+                "play_addr_lowbr",
+            )
+        ]
+        fallback_addrs.append(fallback_play_addr)
+        for play_addr in fallback_addrs:
+            for url in DouyinExtractor._order_video_urls(play_addr.get("url_list")):
+                if url not in candidates:
+                    candidates.append(url)
         return candidates
 
     @staticmethod

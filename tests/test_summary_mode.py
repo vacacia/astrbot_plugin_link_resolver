@@ -298,6 +298,52 @@ class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
                 ],
             )
 
+    async def test_xhs_video_download_checks_next_candidate_after_size_limit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "video.mp4"
+            plugin = SimpleNamespace(
+                max_video_size_mb=200,
+                retry_count=1,
+                _build_xhs_path=lambda *_args, **_kwargs: output_path,
+                _xhs_download_headers=lambda *_args: {},
+                _estimate_total_size_mb=AsyncMock(side_effect=[300.0, 100.0]),
+                _download_stream=AsyncMock(return_value=1024),
+            )
+            plugin._download_xhs_video = XiaohongshuMixin._download_xhs_video.__get__(
+                plugin, XiaohongshuMixin
+            )
+
+            result = await plugin._download_xhs_video(
+                ["https://example.com/h265.mp4", "https://example.com/h264.mp4"],
+                "request",
+            )
+
+            self.assertEqual(result, output_path)
+            self.assertEqual(
+                plugin._download_stream.await_args.args[0],
+                "https://example.com/h264.mp4",
+            )
+
+    async def test_xhs_file_ids_stay_aligned_when_an_image_has_no_url(self):
+        extractor = XiaohongshuExtractor()
+
+        result = extractor._build_result_from_note(
+            {
+                "type": "normal",
+                "imageList": [
+                    {"fileId": "missing-url"},
+                    {
+                        "fileId": "valid-image",
+                        "urlDefault": "https://example.com/image.jpg",
+                    },
+                ],
+            },
+            "https://www.xiaohongshu.com/explore/demo",
+        )
+
+        self.assertEqual(result.image_urls, ["https://example.com/image.jpg"])
+        self.assertEqual(result.file_ids, ["valid-image"])
+
     async def test_build_xhs_summary_strips_topic_marker_inside_hashtags_only(self):
         plugin = SimpleNamespace()
         plugin._build_xhs_summary = XiaohongshuMixin._build_xhs_summary.__get__(

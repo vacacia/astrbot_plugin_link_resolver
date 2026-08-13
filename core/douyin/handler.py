@@ -68,7 +68,7 @@ class DouyinMixin:
                     cookies=None,
                     max_bytes=max_bytes,
                     headers=IOS_HEADERS,
-                    retries=3 if len(candidates) == 1 else 1,
+                    retries=max(1, int(getattr(self, "retry_count", 3))),
                 )
                 logger.debug(
                     "🎵 抖音视频实际使用地址: 候选=%d/%d%s",
@@ -119,7 +119,7 @@ class DouyinMixin:
                     cookies=None,
                     max_bytes=None,
                     headers=ANDROID_HEADERS,
-                    retries=3 if len(candidates) == 1 else 1,
+                    retries=max(1, int(getattr(self, "retry_count", 3))),
                 )
                 return output_path
             except asyncio.CancelledError:

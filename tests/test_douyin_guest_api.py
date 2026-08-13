@@ -162,6 +162,24 @@ def test_video_url_selects_highest_resolution_then_keeps_lower_quality_fallbacks
     }
 
 
+def test_video_url_keeps_all_default_play_address_variants():
+    video = {
+        "play_addr": {"url_list": ["https://example.com/default"]},
+        "play_addr_h264": {"url_list": ["https://example.com/h264"]},
+        "play_addr_h265": {"url_list": ["https://example.com/h265"]},
+        "play_addr_lowbr": {"url_list": ["https://example.com/low"]},
+    }
+
+    urls = DouyinExtractor._select_highest_quality_video_urls(video, video["play_addr"])
+
+    assert urls == [
+        "https://example.com/default",
+        "https://example.com/h264",
+        "https://example.com/h265",
+        "https://example.com/low",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_share_live_photo_does_not_expose_background_audio_as_video(monkeypatch):
     extractor = DouyinExtractor()

@@ -330,9 +330,7 @@ class XiaohongshuExtractor:
                 if img_url:
                     image_urls.append(img_url)
                     image_url_candidates.append(self._extract_image_urls(img))
-                # 获取 fileId 用于尝试原图
-                file_id = self._get_file_id_from_image(img)
-                file_ids.append(file_id)  # 可能是 None，保持索引对应
+                    file_ids.append(self._get_file_id_from_image(img))
                 live_photo_candidates = self._extract_stream_urls(img.get("stream"))
                 if live_photo_candidates:
                     live_photo_urls.append(live_photo_candidates[0])
