@@ -7,9 +7,11 @@ import httpx
 import msgspec
 
 from .errors import DouyinParseError
+from .guest_api import DouyinGuestAPI
 from .render import DouyinCardRenderer
 from .slides import SlidesInfo
 from .video import RouterData
+
 # endregion
 
 # region 常量
@@ -101,6 +103,7 @@ def _normalize_url(url: str) -> str:
 class DouyinExtractor:
     def __init__(self, timeout: float = 15.0):
         self.timeout = timeout
+        self.guest_api = DouyinGuestAPI(timeout=timeout)
 
     async def resolve_short_url(self, url: str) -> str:
         url = _normalize_url(url)
@@ -249,19 +252,22 @@ class DouyinExtractor:
         headers = {**ANDROID_HEADERS, "Referer": "https://www.douyin.com/"}
         async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
             response = await client.get(url, params=params)
-        if response.status_code != 200:
-            raise DouyinParseError(f"iteminfo status: {response.status_code}")
-
-        data = response.json()
+        data = None
+        if response.status_code == 200 and response.content:
+            try:
+                data = response.json()
+            except ValueError:
+                data = None
         items = (
-            data.get("item_list")
-            or data.get("aweme_details")
-            or data.get("aweme_list")
+            (data or {}).get("item_list")
+            or (data or {}).get("aweme_details")
+            or (data or {}).get("aweme_list")
             or []
         )
         if not items:
-            raise DouyinParseError("iteminfo empty")
-        item = items[0] or {}
+            item = await self.guest_api.fetch_detail(video_id)
+        else:
+            item = items[0] or {}
 
         author = item.get("author") or {}
         author_name = author.get("nickname")
@@ -278,7 +284,7 @@ class DouyinExtractor:
             or video.get("play_addr_lowbr")
             or {}
         )
-        video_url = self._pick_url(play_addr.get("url_list"))
+        video_url = self._pick_video_url(play_addr.get("url_list"))
         if video_url:
             video_url = video_url.replace("playwm", "play")
 
@@ -360,6 +366,16 @@ class DouyinExtractor:
             if isinstance(url, str) and url:
                 return url
         return None
+
+    @staticmethod
+    def _pick_video_url(urls) -> str | None:
+        if not urls:
+            return None
+        valid_urls = [url for url in urls if isinstance(url, str) and url]
+        for url in valid_urls:
+            if urlparse(url).hostname in {"douyin.com", "www.douyin.com"}:
+                return url
+        return valid_urls[0] if valid_urls else None
 
     async def _fetch_html(self, url: str, follow_redirects: bool) -> httpx.Response:
         headers = {**IOS_HEADERS, "Referer": "https://www.douyin.com/"}
