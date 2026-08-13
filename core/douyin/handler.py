@@ -70,6 +70,12 @@ class DouyinMixin:
                     headers=IOS_HEADERS,
                     retries=3 if len(candidates) == 1 else 1,
                 )
+                logger.debug(
+                    "🎵 抖音视频实际使用地址: 候选=%d/%d%s",
+                    index + 1,
+                    len(candidates),
+                    " (已回退)" if index else "",
+                )
                 return output_path
             except asyncio.CancelledError:
                 raise

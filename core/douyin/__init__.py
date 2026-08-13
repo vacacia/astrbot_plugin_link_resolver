@@ -298,7 +298,7 @@ class DouyinExtractor:
         selected_quality = self._find_selected_video_quality(video, video_url)
         if selected_quality:
             logger.debug(
-                "🎵 抖音画质选择: %sx%s, %sKbps, 编码=%s, 档位=%s, 本档候选=%d, 总候选=%d",
+                "🎵 抖音首选画质: %sx%s, %sKbps, 编码=%s, 档位=%s, 本档候选=%d, 总候选=%d",
                 selected_quality["width"],
                 selected_quality["height"],
                 selected_quality["bit_rate"] // 1000,
@@ -308,7 +308,7 @@ class DouyinExtractor:
                 len(video_urls),
             )
         elif video_url:
-            logger.debug("🎵 抖音画质选择: 默认播放地址, 总候选=%d", len(video_urls))
+            logger.debug("🎵 抖音首选画质: 默认播放地址, 总候选=%d", len(video_urls))
 
         cover = (
             video.get("cover")
