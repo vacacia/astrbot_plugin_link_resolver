@@ -116,18 +116,24 @@ class DouyinGuestAPI:
         """Return ``aweme_detail``, refreshing guest state once on an empty reply."""
 
         last_error = "empty response"
+        last_exception: httpx.HTTPError | None = None
         for refresh in (False, True):
-            session = await self._get_session(refresh=refresh)
-            endpoint = await self._build_endpoint(aweme_id)
-            headers = {
-                "User-Agent": DESKTOP_USER_AGENT,
-                "Referer": "https://www.douyin.com/",
-                "Cookie": session.cookie,
-            }
-            async with httpx.AsyncClient(
-                timeout=self.timeout, headers=headers
-            ) as client:
-                response = await client.get(endpoint)
+            try:
+                session = await self._get_session(refresh=refresh)
+                endpoint = await self._build_endpoint(aweme_id)
+                headers = {
+                    "User-Agent": DESKTOP_USER_AGENT,
+                    "Referer": "https://www.douyin.com/",
+                    "Cookie": session.cookie,
+                }
+                async with httpx.AsyncClient(
+                    timeout=self.timeout, headers=headers
+                ) as client:
+                    response = await client.get(endpoint)
+            except httpx.HTTPError as exc:
+                last_exception = exc
+                last_error = f"network error: {exc}"
+                continue
             if response.status_code != 200:
                 last_error = f"status {response.status_code}"
                 continue
@@ -145,4 +151,7 @@ class DouyinGuestAPI:
             status = payload.get("status_code") if isinstance(payload, dict) else None
             last_error = f"missing aweme_detail (status_code={status})"
 
-        raise DouyinParseError(f"signed guest detail failed: {last_error}")
+        error = DouyinParseError(f"signed guest detail failed: {last_error}")
+        if last_exception:
+            raise error from last_exception
+        raise error

@@ -20,6 +20,7 @@ except ModuleNotFoundError:
     sys.modules["astrbot.api"] = api
 
 from astrbot_plugin_link_resolver.core.douyin import DouyinExtractor
+from astrbot_plugin_link_resolver.core.douyin.errors import DouyinParseError
 from astrbot_plugin_link_resolver.core.douyin.guest_api import (
     DouyinGuestAPI,
     GuestSession,
@@ -58,6 +59,25 @@ async def test_guest_api_refreshes_session_after_empty_response(monkeypatch):
 
     assert detail["aweme_id"] == "123"
     assert [session.ttwid for session in created] == ["old", "new"]
+
+
+@pytest.mark.asyncio
+async def test_guest_api_wraps_network_error_for_share_page_fallback(monkeypatch):
+    api = DouyinGuestAPI()
+    attempts = []
+
+    async def fail_get_session(*, refresh=False):
+        attempts.append(refresh)
+        raise httpx.ConnectError("guest API unavailable")
+
+    monkeypatch.setattr(api, "_get_session", fail_get_session)
+
+    with pytest.raises(DouyinParseError) as captured:
+        await api.fetch_detail("123")
+
+    assert attempts == [False, True]
+    assert isinstance(captured.value.__cause__, httpx.ConnectError)
+    assert "network error" in str(captured.value)
 
 
 def test_guest_cookie_contains_only_guest_identifiers():
@@ -161,3 +181,27 @@ async def test_normal_video_prefers_iteminfo_quality_ladder(monkeypatch):
 
     assert result is expected
     assert calls == [("123456", "https://www.douyin.com/video/123456")]
+
+
+@pytest.mark.asyncio
+async def test_normal_video_falls_back_to_share_page_after_guest_network_error(
+    monkeypatch,
+):
+    extractor = DouyinExtractor()
+    expected = object()
+    share_urls = []
+
+    async def fail_iteminfo(*_args):
+        raise DouyinParseError("signed guest detail failed: network error")
+
+    async def fake_parse_video(url, _source_url):
+        share_urls.append(url)
+        return expected
+
+    monkeypatch.setattr(extractor, "parse_iteminfo", fail_iteminfo)
+    monkeypatch.setattr(extractor, "parse_video", fake_parse_video)
+
+    result = await extractor.parse("https://www.douyin.com/video/123456")
+
+    assert result is expected
+    assert share_urls == ["https://m.douyin.com/share/video/123456"]
