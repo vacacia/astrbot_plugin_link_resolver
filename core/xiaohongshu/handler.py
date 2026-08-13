@@ -692,16 +692,17 @@ class XiaohongshuMixin:
         # endregion
 
         logger.debug(
-            "🍠 小红书解析完成%s: 视频=%s, 图片=%s, 解析耗时=%.2fs",
+            "🍠 小红书解析完成%s: 视频=%s, 图片=%s, 动图=%s, 解析耗时=%.2fs",
             source_tag,
             "有" if result.video_url else "无",
             len(result.image_urls),
+            len(result.live_photo_urls),
             timing["parse"],
         )
 
         title = result.title or "未知标题"
 
-        if not result.video_url and not result.image_urls:
+        if not result.video_url and not result.image_urls and not result.live_photo_urls:
             logger.warning("⚠️ 小红书未找到可下载的媒体%s: %s", source_tag, target_link)
             return
 
@@ -710,6 +711,7 @@ class XiaohongshuMixin:
         image_paths: list[Path] = []
         cover_path: Path | None = None
         failed_images = 0
+        failed_live_photos = 0
 
         # region 下载阶段
         download_start = time.perf_counter()
@@ -753,6 +755,8 @@ class XiaohongshuMixin:
         # 图片笔记：下载图片
         elif result.image_urls:
             image_urls = result.image_urls[: self.xhs_max_media]
+            remaining = max(self.xhs_max_media - len(image_urls), 0)
+            live_photo_urls = result.live_photo_urls[:remaining]
             file_ids = result.file_ids[: self.xhs_max_media] if result.file_ids else []
             if getattr(self, "xhs_concurrent_download", False):
                 # 并发下载
@@ -790,6 +794,7 @@ class XiaohongshuMixin:
                             len(image_urls),
                             str(exc),
                         )
+
             else:
                 # 串行下载
                 for i, url in enumerate(image_urls):
@@ -814,6 +819,35 @@ class XiaohongshuMixin:
                             len(image_urls),
                             str(exc),
                         )
+
+            for i, url in enumerate(live_photo_urls):
+                try:
+                    video_path = await self._download_xhs_video(
+                        url, request_id, referer=result.source_url
+                    )
+                    media_paths.append(video_path)
+                    media_components.append(
+                        Video.fromFileSystem(str(video_path.resolve()))
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except SizeLimitExceeded:
+                    failed_live_photos += 1
+                    logger.warning(
+                        "⚠️ 小红书动图超过大小限制%s [%d/%d]",
+                        source_tag,
+                        i + 1,
+                        len(live_photo_urls),
+                    )
+                except Exception as exc:
+                    failed_live_photos += 1
+                    logger.warning(
+                        "⚠️ 小红书动图下载失败%s [%d/%d]: %s",
+                        source_tag,
+                        i + 1,
+                        len(live_photo_urls),
+                        str(exc),
+                    )
 
         timing["download"] = time.perf_counter() - download_start
         # endregion

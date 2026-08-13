@@ -1,6 +1,6 @@
 # region 导入
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -75,6 +75,8 @@ class DouyinResult:
     likes: int | None = None
     item_id: str | None = None
     comments: int | None = None
+    video_urls: list[str] = field(default_factory=list)
+    dynamic_url_candidates: list[list[str]] = field(default_factory=list)
 # endregion
 
 
@@ -284,9 +286,8 @@ class DouyinExtractor:
             or video.get("play_addr_lowbr")
             or {}
         )
-        video_url = self._pick_video_url(play_addr.get("url_list"))
-        if video_url:
-            video_url = video_url.replace("playwm", "play")
+        video_urls = self._order_video_urls(play_addr.get("url_list"))
+        video_url = video_urls[0] if video_urls else None
 
         cover = (
             video.get("cover")
@@ -300,16 +301,20 @@ class DouyinExtractor:
 
         image_urls: list[str] = []
         dynamic_urls: list[str] = []
+        dynamic_url_candidates: list[list[str]] = []
         for image in item.get("images") or []:
             url_list = image.get("url_list") or []
             image_url = self._pick_url(url_list)
             if image_url:
                 image_urls.append(image_url)
             image_video = image.get("video") or {}
-            image_play = self._pick_url((image_video.get("play_addr") or {}).get("url_list"))
-            if image_play:
-                dynamic_urls.append(image_play.replace("playwm", "play"))
-        
+            image_plays = self._order_video_urls(
+                (image_video.get("play_addr") or {}).get("url_list")
+            )
+            if image_plays:
+                dynamic_urls.append(image_plays[0])
+                dynamic_url_candidates.append(image_plays)
+
         # 提取统计数据
         statistics = item.get("statistics") or {}
         likes = statistics.get("digg_count")
@@ -328,6 +333,8 @@ class DouyinExtractor:
             likes=likes,
             comments=comments,
             item_id=video_id,
+            video_urls=video_urls,
+            dynamic_url_candidates=dynamic_url_candidates,
         )
     # region parse slides
     async def parse_slides(self, video_id: str, source_url: str) -> DouyinResult:
@@ -369,13 +376,25 @@ class DouyinExtractor:
 
     @staticmethod
     def _pick_video_url(urls) -> str | None:
+        ordered_urls = DouyinExtractor._order_video_urls(urls)
+        return ordered_urls[0] if ordered_urls else None
+
+    @staticmethod
+    def _order_video_urls(urls) -> list[str]:
         if not urls:
-            return None
-        valid_urls = [url for url in urls if isinstance(url, str) and url]
-        for url in valid_urls:
-            if urlparse(url).hostname in {"douyin.com", "www.douyin.com"}:
-                return url
-        return valid_urls[0] if valid_urls else None
+            return []
+        valid_urls: list[str] = []
+        for url in urls:
+            if not isinstance(url, str) or not url:
+                continue
+            url = url.replace("playwm", "play")
+            if url not in valid_urls:
+                valid_urls.append(url)
+        return sorted(
+            valid_urls,
+            key=lambda url: urlparse(url).hostname
+            not in {"douyin.com", "www.douyin.com"},
+        )
 
     async def _fetch_html(self, url: str, follow_redirects: bool) -> httpx.Response:
         headers = {**IOS_HEADERS, "Referer": "https://www.douyin.com/"}

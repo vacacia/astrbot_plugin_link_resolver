@@ -9,7 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT.parent) not in sys.path:
     sys.path.insert(0, str(ROOT.parent))
 
-if "astrbot" not in sys.modules:
+try:
+    import astrbot.api  # noqa: F401
+except ModuleNotFoundError:
     astrbot = types.ModuleType("astrbot")
     api = types.ModuleType("astrbot.api")
     api.logger = types.SimpleNamespace()
@@ -71,3 +73,17 @@ def test_video_url_prefers_douyin_play_endpoint():
     ]
 
     assert DouyinExtractor._pick_video_url(urls) == urls[2]
+
+
+def test_video_url_preserves_all_candidates_in_fallback_order():
+    urls = [
+        "https://v26-web.douyinvod.com/video/first",
+        "https://www.douyin.com/aweme/v1/playwm/?video_id=stable",
+        "https://v11-weba.douyinvod.com/video/second",
+    ]
+
+    assert DouyinExtractor._order_video_urls(urls) == [
+        "https://www.douyin.com/aweme/v1/play/?video_id=stable",
+        urls[0],
+        urls[2],
+    ]

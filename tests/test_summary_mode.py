@@ -31,6 +31,9 @@ from data.plugins.astrbot_plugin_link_resolver.core.bilibili.handler import (
 from data.plugins.astrbot_plugin_link_resolver.core.douyin import DouyinResult
 from data.plugins.astrbot_plugin_link_resolver.core.douyin.handler import DouyinMixin
 from data.plugins.astrbot_plugin_link_resolver.core.xiaohongshu import XiaohongshuResult
+from data.plugins.astrbot_plugin_link_resolver.core.xiaohongshu.extractor import (
+    XiaohongshuExtractor,
+)
 from data.plugins.astrbot_plugin_link_resolver.core.xiaohongshu.handler import (
     XiaohongshuMixin,
 )
@@ -92,6 +95,57 @@ class TestSummaryModeConfig(unittest.TestCase):
 
 
 class TestSummaryModeHandlers(unittest.IsolatedAsyncioTestCase):
+    async def test_douyin_video_download_falls_back_to_next_candidate(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "video.mp4"
+            plugin = SimpleNamespace(
+                max_video_size_mb=200,
+                _build_douyin_path=lambda *_args, **_kwargs: output_path,
+                _estimate_total_size_mb=AsyncMock(return_value=None),
+                _download_stream=AsyncMock(
+                    side_effect=[RuntimeError("第一个地址不可用"), 1024]
+                ),
+            )
+            plugin._download_douyin_video = (
+                DouyinMixin._download_douyin_video.__get__(plugin, DouyinMixin)
+            )
+
+            result = await plugin._download_douyin_video(
+                ["https://example.com/first", "https://example.com/second"],
+                "request",
+            )
+
+            self.assertEqual(result, output_path)
+            self.assertEqual(
+                [call.args[0] for call in plugin._download_stream.await_args_list],
+                ["https://example.com/first", "https://example.com/second"],
+            )
+
+    async def test_xhs_extracts_live_photo_video(self):
+        extractor = XiaohongshuExtractor()
+
+        result = extractor._build_result_from_note(
+            {
+                "type": "normal",
+                "imageList": [
+                    {
+                        "urlDefault": "https://example.com/image.jpg",
+                        "stream": {
+                            "h264": [
+                                {"masterUrl": "https://example.com/live.mp4"}
+                            ]
+                        },
+                    }
+                ],
+            },
+            "https://www.xiaohongshu.com/explore/demo",
+        )
+
+        self.assertEqual(result.image_urls, ["https://example.com/image.jpg"])
+        self.assertEqual(
+            result.live_photo_urls, ["https://example.com/live.mp4"]
+        )
+
     async def test_build_xhs_summary_strips_topic_marker_inside_hashtags_only(self):
         plugin = SimpleNamespace()
         plugin._build_xhs_summary = XiaohongshuMixin._build_xhs_summary.__get__(

@@ -3,8 +3,7 @@
 import asyncio
 import json
 import re
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
@@ -101,6 +100,7 @@ class XiaohongshuResult:
     cover_url: str | None
     source_url: str
     note_id: str | None = None
+    live_photo_urls: list[str] = field(default_factory=list)
 
 
 class XiaohongshuParseError(RuntimeError):
@@ -273,11 +273,12 @@ class XiaohongshuExtractor:
         image_list = note.get("imageList") or []
         image_urls = []
         file_ids = []
+        live_photo_urls = []
         for i, img in enumerate(image_list):
             if isinstance(img, dict):
                 # 记录详细的图片数据以便排查旧版笔记
                 logger.debug("XHS Image[%d] full data: %s", i, img)
-                
+
                 # 获取图片 URL
                 img_url = self._get_original_image_url(img)
                 if img_url:
@@ -285,7 +286,10 @@ class XiaohongshuExtractor:
                 # 获取 fileId 用于尝试原图
                 file_id = self._get_file_id_from_image(img)
                 file_ids.append(file_id)  # 可能是 None，保持索引对应
-        
+                live_photo_url = self._extract_stream_url(img.get("stream"))
+                if live_photo_url:
+                    live_photo_urls.append(live_photo_url)
+
         logger.debug("XHS Extracted file_ids: %s", file_ids)
 
         # 视频
@@ -308,8 +312,11 @@ class XiaohongshuExtractor:
         note_id = note.get("noteId") or note.get("id")
 
         logger.debug(
-            "XHS 解析完成: type=%s, images=%d, video=%s",
-            note_type, len(image_urls), "有" if video_url else "无"
+            "XHS 解析完成: type=%s, images=%d, live_photos=%d, video=%s",
+            note_type,
+            len(image_urls),
+            len(live_photo_urls),
+            "有" if video_url else "无",
         )
 
         return XiaohongshuResult(
@@ -322,6 +329,7 @@ class XiaohongshuExtractor:
             cover_url=cover_url,
             source_url=source_url,
             note_id=note_id,
+            live_photo_urls=live_photo_urls,
         )
 
     def _get_original_image_url(self, img: dict[str, Any]) -> str | None:
@@ -403,18 +411,30 @@ class XiaohongshuExtractor:
         if not isinstance(media, dict):
             return None
 
-        stream = media.get("stream")
+        return self._extract_stream_url(media.get("stream"), prefer_h265=True)
+
+    @staticmethod
+    def _extract_stream_url(
+        stream: Any, *, prefer_h265: bool = False
+    ) -> str | None:
         if not isinstance(stream, dict):
             return None
-
-        # h265 无水印优先，其次 h264
-        for codec in ("h265", "h264", "av1", "h266"):
+        codecs = ("h265", "h264", "av1", "h266") if prefer_h265 else (
+            "h264",
+            "h265",
+            "av1",
+            "h266",
+        )
+        for codec in codecs:
             codec_streams = stream.get(codec)
-            if isinstance(codec_streams, list) and codec_streams:
-                master_url = codec_streams[0].get("masterUrl")
-                if master_url:
-                    logger.debug("XHS video codec: %s", codec)
-                    return master_url
+            if isinstance(codec_streams, list):
+                for codec_stream in codec_streams:
+                    if not isinstance(codec_stream, dict):
+                        continue
+                    master_url = codec_stream.get("masterUrl")
+                    if master_url:
+                        logger.debug("XHS video codec: %s", codec)
+                        return master_url
 
         return None
 

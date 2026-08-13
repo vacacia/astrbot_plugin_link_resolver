@@ -34,22 +34,59 @@ class DouyinMixin:
         base_dir = get_douyin_video_path() if is_video else get_douyin_image_path()
         return base_dir / f"{self._hash_url(url)}_{request_id}{suffix}"
 
-    async def _download_douyin_video(self, url: str, request_id: str) -> Path:
+    async def _download_douyin_video(
+        self, urls: str | list[str], request_id: str
+    ) -> Path:
+        candidates = [urls] if isinstance(urls, str) else list(dict.fromkeys(urls))
+        if not candidates:
+            raise RuntimeError("没有可用的抖音视频地址")
         max_bytes = (
             self.max_video_size_mb * 1024 * 1024 if self.max_video_size_mb > 0 else None
         )
-        size_mb = await self._estimate_total_size_mb(url, None, headers=IOS_HEADERS)
-        logger.debug(
-            "🎵 估算抖音视频大小: %s MB",
-            f"{size_mb:.2f}" if size_mb is not None else "未知",
+        output_path = self._build_douyin_path(
+            candidates[0], is_video=True, request_id=request_id
         )
-        if size_mb is not None and max_bytes and size_mb * 1024 * 1024 > max_bytes:
-            raise SizeLimitExceeded("超过大小限制")
-        output_path = self._build_douyin_path(url, is_video=True, request_id=request_id)
-        await self._download_stream(
-            url, output_path, cookies=None, max_bytes=max_bytes, headers=IOS_HEADERS
-        )
-        return output_path
+        last_error: Exception | None = None
+        for index, url in enumerate(candidates):
+            try:
+                size_mb = await self._estimate_total_size_mb(
+                    url, None, headers=IOS_HEADERS
+                )
+                logger.debug(
+                    "🎵 估算抖音视频大小: %s MB",
+                    f"{size_mb:.2f}" if size_mb is not None else "未知",
+                )
+                if (
+                    size_mb is not None
+                    and max_bytes
+                    and size_mb * 1024 * 1024 > max_bytes
+                ):
+                    raise SizeLimitExceeded("超过大小限制")
+                await self._download_stream(
+                    url,
+                    output_path,
+                    cookies=None,
+                    max_bytes=max_bytes,
+                    headers=IOS_HEADERS,
+                    retries=3 if len(candidates) == 1 else 1,
+                )
+                return output_path
+            except asyncio.CancelledError:
+                raise
+            except SizeLimitExceeded:
+                raise
+            except Exception as exc:
+                last_error = exc
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "⚠️ 抖音视频地址不可用, 尝试候选地址 (%d/%d): %s",
+                        index + 1,
+                        len(candidates),
+                        str(exc),
+                    )
+        if last_error:
+            raise last_error
+        raise RuntimeError("抖音视频下载失败")
 
     async def _download_douyin_image(self, url: str, request_id: str) -> Path:
         output_path = self._build_douyin_path(
@@ -338,7 +375,14 @@ class DouyinMixin:
             for i, url in enumerate(dynamic_urls):
                 try:
                     dyn_start = time.perf_counter()
-                    video_path = await self._download_douyin_video(url, request_id)
+                    candidates = (
+                        result.dynamic_url_candidates[i]
+                        if i < len(result.dynamic_url_candidates)
+                        else [url]
+                    )
+                    video_path = await self._download_douyin_video(
+                        candidates, request_id
+                    )
                     media_paths.append(video_path)
                     media_components.append(
                         Video.fromFileSystem(str(video_path.resolve()))
@@ -375,7 +419,7 @@ class DouyinMixin:
             try:
                 video_start = time.perf_counter()
                 video_path = await self._download_douyin_video(
-                    result.video_url, request_id
+                    result.video_urls or [result.video_url], request_id
                 )
                 media_paths.append(video_path)
                 media_components.append(Video.fromFileSystem(str(video_path.resolve())))
