@@ -87,3 +87,69 @@ def test_video_url_preserves_all_candidates_in_fallback_order():
         urls[0],
         urls[2],
     ]
+
+
+def test_video_url_selects_highest_resolution_then_keeps_lower_quality_fallbacks():
+    video = {
+        "bit_rate": [
+            {
+                "bit_rate": 800_000,
+                "play_addr": {
+                    "width": 720,
+                    "height": 1280,
+                    "url_list": ["https://example.com/720p"],
+                },
+            },
+            {"bit_rate": None, "play_addr": None},
+            {
+                "bit_rate": 2_000_000,
+                "play_addr": {
+                    "width": 1080,
+                    "height": 1920,
+                    "url_list": ["https://example.com/1080p"],
+                },
+            },
+            {
+                "bit_rate": 1_500_000,
+                "play_addr": {
+                    "width": 2160,
+                    "height": 3840,
+                    "url_list": ["https://example.com/4k"],
+                },
+            },
+        ]
+    }
+
+    urls = DouyinExtractor._select_highest_quality_video_urls(
+        video,
+        {"url_list": ["https://example.com/default"]},
+    )
+
+    assert urls == [
+        "https://example.com/4k",
+        "https://example.com/1080p",
+        "https://example.com/720p",
+        "https://example.com/default",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_normal_video_prefers_iteminfo_quality_ladder(monkeypatch):
+    extractor = DouyinExtractor()
+    expected = object()
+    calls = []
+
+    async def fake_parse_iteminfo(video_id, source_url):
+        calls.append((video_id, source_url))
+        return expected
+
+    async def fail_parse_video(*_args):
+        raise AssertionError("详情 API 成功时不应退回分享页")
+
+    monkeypatch.setattr(extractor, "parse_iteminfo", fake_parse_iteminfo)
+    monkeypatch.setattr(extractor, "parse_video", fail_parse_video)
+
+    result = await extractor.parse("https://www.douyin.com/video/123456")
+
+    assert result is expected
+    assert calls == [("123456", "https://www.douyin.com/video/123456")]

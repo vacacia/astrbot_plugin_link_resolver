@@ -33,9 +33,7 @@ ANDROID_HEADERS = {
 # endregion
 
 # region 链接正则
-DOUYIN_SHORT_LINK_PATTERN = (
-    r"(?:https?://)?(?:v|jx)\.douyin\.com/[a-zA-Z0-9_\-]+/?"
-)
+DOUYIN_SHORT_LINK_PATTERN = r"(?:https?://)?(?:v|jx)\.douyin\.com/[a-zA-Z0-9_\-]+/?"
 
 _DOUYIN_LONG_PATTERNS = [
     r"(?:https?://)?(?:www\.)?douyin\.com/(?P<ty>video|note)/(?P<vid>\d+)",
@@ -77,6 +75,8 @@ class DouyinResult:
     comments: int | None = None
     video_urls: list[str] = field(default_factory=list)
     dynamic_url_candidates: list[list[str]] = field(default_factory=list)
+
+
 # endregion
 
 
@@ -98,6 +98,8 @@ def _normalize_url(url: str) -> str:
     if url.startswith("http://") or url.startswith("https://"):
         return url
     return f"https://{url}"
+
+
 # endregion
 
 
@@ -143,22 +145,25 @@ class DouyinExtractor:
                 errors.append(f"iteminfo:{exc}")
             raise DouyinParseError("; ".join(errors) or "failed to parse douyin slides")
 
+        try:
+            return await self.parse_iteminfo(vid, url)
+        except DouyinParseError as exc:
+            errors.append(f"iteminfo:{exc}")
+
         if "iesdouyin.com" in url or "m.douyin.com/share" in url:
             try:
                 return await self.parse_video(url, url)
             except DouyinParseError as exc:
                 errors.append(f"share:{exc}")
 
-        for share_url in (self._build_m_douyin_url(ty, vid), self._build_iesdouyin_url(ty, vid)):
+        for share_url in (
+            self._build_m_douyin_url(ty, vid),
+            self._build_iesdouyin_url(ty, vid),
+        ):
             try:
                 return await self.parse_video(share_url, url)
             except DouyinParseError as exc:
                 errors.append(f"share:{exc}")
-
-        try:
-            return await self.parse_iteminfo(vid, url)
-        except DouyinParseError as exc:
-            errors.append(f"iteminfo:{exc}")
 
         raise DouyinParseError("; ".join(errors) or "failed to parse douyin link")
 
@@ -212,6 +217,7 @@ class DouyinExtractor:
     @staticmethod
     def _build_m_douyin_url(ty: str, vid: str) -> str:
         return f"https://m.douyin.com/share/{ty}/{vid}"
+
     # region parse video
     async def parse_video(self, url: str, source_url: str) -> DouyinResult:
         pattern = re.compile(
@@ -286,7 +292,7 @@ class DouyinExtractor:
             or video.get("play_addr_lowbr")
             or {}
         )
-        video_urls = self._order_video_urls(play_addr.get("url_list"))
+        video_urls = self._select_highest_quality_video_urls(video, play_addr)
         video_url = video_urls[0] if video_urls else None
 
         cover = (
@@ -336,6 +342,7 @@ class DouyinExtractor:
             video_urls=video_urls,
             dynamic_url_candidates=dynamic_url_candidates,
         )
+
     # region parse slides
     async def parse_slides(self, video_id: str, source_url: str) -> DouyinResult:
         url = "https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
@@ -348,7 +355,9 @@ class DouyinExtractor:
             response = await client.get(url, params=params)
         response.raise_for_status()
 
-        slides_data = msgspec.json.decode(response.content, type=SlidesInfo).aweme_details
+        slides_data = msgspec.json.decode(
+            response.content, type=SlidesInfo
+        ).aweme_details
         if not slides_data:
             raise DouyinParseError("slides data is empty")
         slides = slides_data[0]
@@ -392,9 +401,45 @@ class DouyinExtractor:
                 valid_urls.append(url)
         return sorted(
             valid_urls,
-            key=lambda url: urlparse(url).hostname
-            not in {"douyin.com", "www.douyin.com"},
+            key=lambda url: (
+                urlparse(url).hostname not in {"douyin.com", "www.douyin.com"}
+            ),
         )
+
+    @staticmethod
+    def _select_highest_quality_video_urls(
+        video: dict, fallback_play_addr: dict
+    ) -> list[str]:
+        def number(value) -> int:
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        def quality_key(rate: dict) -> tuple[int, int, int]:
+            play_addr = rate.get("play_addr") or {}
+            bit_rate = rate.get("bit_rate") or play_addr.get("bit_rate") or 0
+            width = play_addr.get("width") or rate.get("width") or 0
+            height = play_addr.get("height") or rate.get("height") or 0
+            data_size = play_addr.get("data_size") or rate.get("data_size") or 0
+            return number(width) * number(height), number(bit_rate), number(data_size)
+
+        candidates: list[str] = []
+        quality_rates = [
+            rate for rate in video.get("bit_rate") or [] if isinstance(rate, dict)
+        ]
+        for rate in sorted(quality_rates, key=quality_key, reverse=True):
+            play_addr = rate.get("play_addr") or {}
+            for url in DouyinExtractor._order_video_urls(play_addr.get("url_list")):
+                if url not in candidates:
+                    candidates.append(url)
+
+        for url in DouyinExtractor._order_video_urls(
+            fallback_play_addr.get("url_list")
+        ):
+            if url not in candidates:
+                candidates.append(url)
+        return candidates
 
     async def _fetch_html(self, url: str, follow_redirects: bool) -> httpx.Response:
         headers = {**IOS_HEADERS, "Referer": "https://www.douyin.com/"}
@@ -403,6 +448,8 @@ class DouyinExtractor:
         if response.status_code != 200:
             raise DouyinParseError(f"status: {response.status_code}")
         return response
+
+
 # endregion
 
 
