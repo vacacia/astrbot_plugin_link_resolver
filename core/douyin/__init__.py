@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import msgspec
+from astrbot.api import logger
 
 from .errors import DouyinParseError
 from .guest_api import DouyinGuestAPI
@@ -294,6 +295,20 @@ class DouyinExtractor:
         )
         video_urls = self._select_highest_quality_video_urls(video, play_addr)
         video_url = video_urls[0] if video_urls else None
+        selected_quality = self._find_selected_video_quality(video, video_url)
+        if selected_quality:
+            logger.debug(
+                "🎵 抖音画质选择: %sx%s, %sKbps, 编码=%s, 档位=%s, 本档候选=%d, 总候选=%d",
+                selected_quality["width"],
+                selected_quality["height"],
+                selected_quality["bit_rate"] // 1000,
+                selected_quality["codec"],
+                selected_quality["gear_name"] or "未知",
+                selected_quality["candidate_count"],
+                len(video_urls),
+            )
+        elif video_url:
+            logger.debug("🎵 抖音画质选择: 默认播放地址, 总候选=%d", len(video_urls))
 
         cover = (
             video.get("cover")
@@ -440,6 +455,38 @@ class DouyinExtractor:
             if url not in candidates:
                 candidates.append(url)
         return candidates
+
+    @staticmethod
+    def _find_selected_video_quality(
+        video: dict, selected_url: str | None
+    ) -> dict | None:
+        if not selected_url:
+            return None
+
+        def number(value) -> int:
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        for rate in video.get("bit_rate") or []:
+            if not isinstance(rate, dict):
+                continue
+            play_addr = rate.get("play_addr") or {}
+            candidates = DouyinExtractor._order_video_urls(play_addr.get("url_list"))
+            if selected_url not in candidates:
+                continue
+            is_h265 = rate.get("is_h265")
+            codec = "H.265" if is_h265 == 1 else "H.264" if is_h265 == 0 else "未知"
+            return {
+                "width": number(play_addr.get("width") or rate.get("width")),
+                "height": number(play_addr.get("height") or rate.get("height")),
+                "bit_rate": number(rate.get("bit_rate") or play_addr.get("bit_rate")),
+                "codec": codec,
+                "gear_name": rate.get("gear_name"),
+                "candidate_count": len(candidates),
+            }
+        return None
 
     async def _fetch_html(self, url: str, follow_redirects: bool) -> httpx.Response:
         headers = {**IOS_HEADERS, "Referer": "https://www.douyin.com/"}

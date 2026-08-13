@@ -131,6 +131,14 @@ def test_video_url_selects_highest_resolution_then_keeps_lower_quality_fallbacks
         "https://example.com/720p",
         "https://example.com/default",
     ]
+    assert DouyinExtractor._find_selected_video_quality(video, urls[0]) == {
+        "width": 2160,
+        "height": 3840,
+        "bit_rate": 1_500_000,
+        "codec": "未知",
+        "gear_name": None,
+        "candidate_count": 1,
+    }
 
 
 @pytest.mark.asyncio
