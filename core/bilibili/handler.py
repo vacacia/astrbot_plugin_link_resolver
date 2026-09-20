@@ -36,6 +36,7 @@ from ..common.card_renderer import (
     UniversalCardRenderer,
     get_theme_for_platform,
 )
+from ..common.file_lifecycle import save_image_file
 
 # endregion
 
@@ -869,12 +870,14 @@ class BilibiliMixin:
                     str(exc),
                 )
 
-    async def _download_bili_cover(self, cover_url: str, bvid: str) -> Path | None:
+    async def _download_bili_cover(
+        self, cover_url: str, bvid: str, request_id: str
+    ) -> Path | None:
         """下载封面图到缓存目录"""
         if not cover_url:
             return None
         try:
-            cover_path = get_bilibili_card_path() / f"{bvid}_cover.jpg"
+            cover_path = get_bilibili_card_path() / f"{bvid}_{request_id}_cover.jpg"
             await self._download_stream(
                 cover_url,
                 cover_path,
@@ -948,10 +951,12 @@ class BilibiliMixin:
         views: int,
         likes: int,
         coins: int,
+        request_id: str,
     ) -> Path | None:
         """渲染B站视频卡片"""
+        cover_path: Path | None = None
         try:
-            cover_path = await self._download_bili_cover(cover_url, bvid)
+            cover_path = await self._download_bili_cover(cover_url, bvid, request_id)
 
             theme = get_theme_for_platform("bilibili")
             renderer = UniversalCardRenderer(theme)
@@ -972,14 +977,17 @@ class BilibiliMixin:
 
             # 使用 asyncio.to_thread 避免阻塞事件循环
             card_img = await asyncio.to_thread(renderer.render, data)
-            card_path = get_bilibili_card_path() / f"{bvid}_card.png"
-            await asyncio.to_thread(card_img.save, card_path)
+            card_path = get_bilibili_card_path() / f"{bvid}_{request_id}_card.png"
+            await save_image_file(card_img, card_path)
 
             logger.debug("✅ B站卡片渲染成功: %s", card_path)
             return card_path
         except Exception as exc:
             logger.warning("⚠️ B站卡片渲染失败: %s", str(exc))
             return None
+        finally:
+            if cover_path:
+                await asyncio.to_thread(cover_path.unlink, missing_ok=True)
 
     # endregion
 
@@ -1023,6 +1031,8 @@ class BilibiliMixin:
         else:
             return
 
+        video_paths: list[Path] = []
+        thumbnail_paths: list[Path] = []
         try:
             # region 解析阶段
             parse_start = time.perf_counter()
@@ -1107,9 +1117,6 @@ class BilibiliMixin:
                     )
                     event.set_result(event.plain_result("视频太长了你自己看去"))
                     return
-
-            video_paths: list[Path] = []
-            thumbnail_paths: list[Path] = []
 
             # region 下载阶段
             download_start = time.perf_counter()
@@ -1236,9 +1243,6 @@ class BilibiliMixin:
                     timing.get("send", 0),
                     total_elapsed,
                 )
-                # 发送完成后立即清理文件（Direct Send Pattern：此时文件已被读取）
-                if video_paths or thumbnail_paths:
-                    await self.cleanup_files(video_paths, thumbnail_paths)
                 return
 
             # 单P视频处理
@@ -1287,7 +1291,10 @@ class BilibiliMixin:
                     views=view_count,
                     likes=likes,
                     coins=coins,
+                    request_id=request_id,
                 )
+                if card_path:
+                    video_paths.append(card_path)
             elif self.bili_merge_send:
                 summary_text = self._build_bili_summary(
                     title=title,
@@ -1369,9 +1376,6 @@ class BilibiliMixin:
                     timing.get("send", 0),
                     total_elapsed,
                 )
-                # 发送完成后立即清理文件（Direct Send Pattern：此时文件已被读取）
-                if video_paths or thumbnail_paths:
-                    await self.cleanup_files(video_paths, thumbnail_paths)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -1380,11 +1384,12 @@ class BilibiliMixin:
                     event.set_result(event.plain_result(f"❌ 视频发送失败: {str(exc)}"))
                 elif self.error_notify_mode == "脱敏":
                     event.set_result(event.plain_result("❌ 视频发送失败"))
-                if video_paths or thumbnail_paths:
-                    await self.cleanup_files(video_paths, thumbnail_paths)
         except asyncio.CancelledError:
             logger.info("♻️ B站解析任务已中断%s", source_tag)
             return
+        finally:
+            if video_paths or thumbnail_paths:
+                await self.cleanup_files(video_paths, thumbnail_paths)
 
     # endregion
 

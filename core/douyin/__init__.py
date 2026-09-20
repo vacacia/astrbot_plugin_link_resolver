@@ -1,15 +1,19 @@
 # region 导入
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import msgspec
 
+from astrbot.api import logger
+
 from .errors import DouyinParseError
+from .guest_api import DouyinGuestAPI
 from .render import DouyinCardRenderer
 from .slides import SlidesInfo
 from .video import RouterData
+
 # endregion
 
 # region 常量
@@ -31,9 +35,7 @@ ANDROID_HEADERS = {
 # endregion
 
 # region 链接正则
-DOUYIN_SHORT_LINK_PATTERN = (
-    r"(?:https?://)?(?:v|jx)\.douyin\.com/[a-zA-Z0-9_\-]+/?"
-)
+DOUYIN_SHORT_LINK_PATTERN = r"(?:https?://)?(?:v|jx)\.douyin\.com/[a-zA-Z0-9_\-]+/?"
 
 _DOUYIN_LONG_PATTERNS = [
     r"(?:https?://)?(?:www\.)?douyin\.com/(?P<ty>video|note)/(?P<vid>\d+)",
@@ -73,6 +75,11 @@ class DouyinResult:
     likes: int | None = None
     item_id: str | None = None
     comments: int | None = None
+    video_urls: list[str] = field(default_factory=list)
+    image_url_candidates: list[list[str]] = field(default_factory=list)
+    dynamic_url_candidates: list[list[str]] = field(default_factory=list)
+
+
 # endregion
 
 
@@ -94,6 +101,8 @@ def _normalize_url(url: str) -> str:
     if url.startswith("http://") or url.startswith("https://"):
         return url
     return f"https://{url}"
+
+
 # endregion
 
 
@@ -101,6 +110,7 @@ def _normalize_url(url: str) -> str:
 class DouyinExtractor:
     def __init__(self, timeout: float = 15.0):
         self.timeout = timeout
+        self.guest_api = DouyinGuestAPI(timeout=timeout)
 
     async def resolve_short_url(self, url: str) -> str:
         url = _normalize_url(url)
@@ -138,22 +148,25 @@ class DouyinExtractor:
                 errors.append(f"iteminfo:{exc}")
             raise DouyinParseError("; ".join(errors) or "failed to parse douyin slides")
 
+        try:
+            return await self.parse_iteminfo(vid, url)
+        except DouyinParseError as exc:
+            errors.append(f"iteminfo:{exc}")
+
         if "iesdouyin.com" in url or "m.douyin.com/share" in url:
             try:
                 return await self.parse_video(url, url)
             except DouyinParseError as exc:
                 errors.append(f"share:{exc}")
 
-        for share_url in (self._build_m_douyin_url(ty, vid), self._build_iesdouyin_url(ty, vid)):
+        for share_url in (
+            self._build_m_douyin_url(ty, vid),
+            self._build_iesdouyin_url(ty, vid),
+        ):
             try:
                 return await self.parse_video(share_url, url)
             except DouyinParseError as exc:
                 errors.append(f"share:{exc}")
-
-        try:
-            return await self.parse_iteminfo(vid, url)
-        except DouyinParseError as exc:
-            errors.append(f"iteminfo:{exc}")
 
         raise DouyinParseError("; ".join(errors) or "failed to parse douyin link")
 
@@ -207,6 +220,7 @@ class DouyinExtractor:
     @staticmethod
     def _build_m_douyin_url(ty: str, vid: str) -> str:
         return f"https://m.douyin.com/share/{ty}/{vid}"
+
     # region parse video
     async def parse_video(self, url: str, source_url: str) -> DouyinResult:
         pattern = re.compile(
@@ -225,8 +239,15 @@ class DouyinExtractor:
         router_data = msgspec.json.decode(matched.group(1).strip(), type=RouterData)
         video_data = router_data.video_data
 
+        image_url_candidates = video_data.image_url_candidates
         image_urls = video_data.image_urls
+        dynamic_url_candidates = video_data.dynamic_url_candidates
+        dynamic_urls = [urls[0] for urls in dynamic_url_candidates]
+        video_urls = video_data.video_urls
         video_url = video_data.video_url
+        if image_urls or dynamic_urls:
+            video_urls = []
+            video_url = None
         cover_url = video_data.cover_url
         duration = video_data.video.duration if video_data.video else 0
 
@@ -238,9 +259,12 @@ class DouyinExtractor:
             video_url=video_url,
             cover_url=cover_url,
             image_urls=image_urls,
-            dynamic_urls=[],
+            dynamic_urls=dynamic_urls,
             source_url=source_url,
             item_id=video_data.aweme_id,
+            video_urls=video_urls,
+            image_url_candidates=image_url_candidates,
+            dynamic_url_candidates=dynamic_url_candidates,
         )
 
     async def parse_iteminfo(self, video_id: str, source_url: str) -> DouyinResult:
@@ -249,19 +273,22 @@ class DouyinExtractor:
         headers = {**ANDROID_HEADERS, "Referer": "https://www.douyin.com/"}
         async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
             response = await client.get(url, params=params)
-        if response.status_code != 200:
-            raise DouyinParseError(f"iteminfo status: {response.status_code}")
-
-        data = response.json()
+        data = None
+        if response.status_code == 200 and response.content:
+            try:
+                data = response.json()
+            except ValueError:
+                data = None
         items = (
-            data.get("item_list")
-            or data.get("aweme_details")
-            or data.get("aweme_list")
+            (data or {}).get("item_list")
+            or (data or {}).get("aweme_details")
+            or (data or {}).get("aweme_list")
             or []
         )
         if not items:
-            raise DouyinParseError("iteminfo empty")
-        item = items[0] or {}
+            item = await self.guest_api.fetch_detail(video_id, source_url=source_url)
+        else:
+            item = items[0] or {}
 
         author = item.get("author") or {}
         author_name = author.get("nickname")
@@ -275,12 +302,26 @@ class DouyinExtractor:
         play_addr = (
             video.get("play_addr")
             or video.get("play_addr_h264")
+            or video.get("play_addr_h265")
             or video.get("play_addr_lowbr")
             or {}
         )
-        video_url = self._pick_url(play_addr.get("url_list"))
-        if video_url:
-            video_url = video_url.replace("playwm", "play")
+        video_urls = self._select_highest_quality_video_urls(video, play_addr)
+        video_url = video_urls[0] if video_urls else None
+        selected_quality = self._find_selected_video_quality(video, video_url)
+        if selected_quality:
+            logger.debug(
+                "🎵 抖音首选画质: %sx%s, %sKbps, 编码=%s, 档位=%s, 本档候选=%d, 总候选=%d",
+                selected_quality["width"],
+                selected_quality["height"],
+                selected_quality["bit_rate"] // 1000,
+                selected_quality["codec"],
+                selected_quality["gear_name"] or "未知",
+                selected_quality["candidate_count"],
+                len(video_urls),
+            )
+        elif video_url:
+            logger.debug("🎵 抖音首选画质: 默认播放地址, 总候选=%d", len(video_urls))
 
         cover = (
             video.get("cover")
@@ -293,17 +334,41 @@ class DouyinExtractor:
         duration = item.get("duration") or video.get("duration") or 0
 
         image_urls: list[str] = []
+        image_url_candidates: list[list[str]] = []
         dynamic_urls: list[str] = []
+        dynamic_url_candidates: list[list[str]] = []
         for image in item.get("images") or []:
-            url_list = image.get("url_list") or []
-            image_url = self._pick_url(url_list)
-            if image_url:
-                image_urls.append(image_url)
+            image_candidates = list(
+                dict.fromkeys(
+                    url
+                    for url in image.get("url_list") or []
+                    if isinstance(url, str) and url
+                )
+            )
+            if image_candidates:
+                image_urls.append(image_candidates[0])
+                image_url_candidates.append(image_candidates)
             image_video = image.get("video") or {}
-            image_play = self._pick_url((image_video.get("play_addr") or {}).get("url_list"))
-            if image_play:
-                dynamic_urls.append(image_play.replace("playwm", "play"))
-        
+            image_plays: list[str] = []
+            for key in (
+                "play_addr",
+                "play_addr_h264",
+                "play_addr_h265",
+                "play_addr_lowbr",
+            ):
+                for url in self._order_video_urls(
+                    (image_video.get(key) or {}).get("url_list")
+                ):
+                    if url not in image_plays:
+                        image_plays.append(url)
+            if image_plays:
+                dynamic_urls.append(image_plays[0])
+                dynamic_url_candidates.append(image_plays)
+
+        if image_urls or dynamic_urls:
+            video_urls = []
+            video_url = None
+
         # 提取统计数据
         statistics = item.get("statistics") or {}
         likes = statistics.get("digg_count")
@@ -322,7 +387,11 @@ class DouyinExtractor:
             likes=likes,
             comments=comments,
             item_id=video_id,
+            video_urls=video_urls,
+            image_url_candidates=image_url_candidates,
+            dynamic_url_candidates=dynamic_url_candidates,
         )
+
     # region parse slides
     async def parse_slides(self, video_id: str, source_url: str) -> DouyinResult:
         url = "https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
@@ -335,7 +404,9 @@ class DouyinExtractor:
             response = await client.get(url, params=params)
         response.raise_for_status()
 
-        slides_data = msgspec.json.decode(response.content, type=SlidesInfo).aweme_details
+        slides_data = msgspec.json.decode(
+            response.content, type=SlidesInfo
+        ).aweme_details
         if not slides_data:
             raise DouyinParseError("slides data is empty")
         slides = slides_data[0]
@@ -350,6 +421,8 @@ class DouyinExtractor:
             image_urls=slides.image_urls,
             dynamic_urls=slides.dynamic_urls,
             source_url=source_url,
+            image_url_candidates=slides.image_url_candidates,
+            dynamic_url_candidates=slides.dynamic_url_candidates,
         )
 
     @staticmethod
@@ -361,6 +434,105 @@ class DouyinExtractor:
                 return url
         return None
 
+    @staticmethod
+    def _pick_video_url(urls) -> str | None:
+        ordered_urls = DouyinExtractor._order_video_urls(urls)
+        return ordered_urls[0] if ordered_urls else None
+
+    @staticmethod
+    def _order_video_urls(urls) -> list[str]:
+        if not urls:
+            return []
+        valid_urls: list[str] = []
+        for url in urls:
+            if not isinstance(url, str) or not url:
+                continue
+            url = url.replace("playwm", "play")
+            if url not in valid_urls:
+                valid_urls.append(url)
+        return sorted(
+            valid_urls,
+            key=lambda url: (
+                urlparse(url).hostname not in {"douyin.com", "www.douyin.com"}
+            ),
+        )
+
+    @staticmethod
+    def _select_highest_quality_video_urls(
+        video: dict, fallback_play_addr: dict
+    ) -> list[str]:
+        def number(value) -> int:
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        def quality_key(rate: dict) -> tuple[int, int, int]:
+            play_addr = rate.get("play_addr") or {}
+            bit_rate = rate.get("bit_rate") or play_addr.get("bit_rate") or 0
+            width = play_addr.get("width") or rate.get("width") or 0
+            height = play_addr.get("height") or rate.get("height") or 0
+            data_size = play_addr.get("data_size") or rate.get("data_size") or 0
+            return number(width) * number(height), number(bit_rate), number(data_size)
+
+        candidates: list[str] = []
+        quality_rates = [
+            rate for rate in video.get("bit_rate") or [] if isinstance(rate, dict)
+        ]
+        for rate in sorted(quality_rates, key=quality_key, reverse=True):
+            play_addr = rate.get("play_addr") or {}
+            for url in DouyinExtractor._order_video_urls(play_addr.get("url_list")):
+                if url not in candidates:
+                    candidates.append(url)
+
+        fallback_addrs = [
+            video.get(key) or {}
+            for key in (
+                "play_addr",
+                "play_addr_h264",
+                "play_addr_h265",
+                "play_addr_lowbr",
+            )
+        ]
+        fallback_addrs.append(fallback_play_addr)
+        for play_addr in fallback_addrs:
+            for url in DouyinExtractor._order_video_urls(play_addr.get("url_list")):
+                if url not in candidates:
+                    candidates.append(url)
+        return candidates
+
+    @staticmethod
+    def _find_selected_video_quality(
+        video: dict, selected_url: str | None
+    ) -> dict | None:
+        if not selected_url:
+            return None
+
+        def number(value) -> int:
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        for rate in video.get("bit_rate") or []:
+            if not isinstance(rate, dict):
+                continue
+            play_addr = rate.get("play_addr") or {}
+            candidates = DouyinExtractor._order_video_urls(play_addr.get("url_list"))
+            if selected_url not in candidates:
+                continue
+            is_h265 = rate.get("is_h265")
+            codec = "H.265" if is_h265 == 1 else "H.264" if is_h265 == 0 else "未知"
+            return {
+                "width": number(play_addr.get("width") or rate.get("width")),
+                "height": number(play_addr.get("height") or rate.get("height")),
+                "bit_rate": number(rate.get("bit_rate") or play_addr.get("bit_rate")),
+                "codec": codec,
+                "gear_name": rate.get("gear_name"),
+                "candidate_count": len(candidates),
+            }
+        return None
+
     async def _fetch_html(self, url: str, follow_redirects: bool) -> httpx.Response:
         headers = {**IOS_HEADERS, "Referer": "https://www.douyin.com/"}
         async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
@@ -368,6 +540,8 @@ class DouyinExtractor:
         if response.status_code != 200:
             raise DouyinParseError(f"status: {response.status_code}")
         return response
+
+
 # endregion
 
 

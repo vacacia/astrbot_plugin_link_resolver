@@ -14,6 +14,7 @@ from ..common import (
     get_douyin_image_path,
     get_douyin_video_path,
 )
+from ..common.file_lifecycle import save_image_file
 from . import (
     ANDROID_HEADERS,
     IOS_HEADERS,
@@ -34,31 +35,108 @@ class DouyinMixin:
         base_dir = get_douyin_video_path() if is_video else get_douyin_image_path()
         return base_dir / f"{self._hash_url(url)}_{request_id}{suffix}"
 
-    async def _download_douyin_video(self, url: str, request_id: str) -> Path:
+    async def _download_douyin_video(
+        self, urls: str | list[str], request_id: str
+    ) -> Path:
+        candidates = [urls] if isinstance(urls, str) else list(dict.fromkeys(urls))
+        if not candidates:
+            raise RuntimeError("没有可用的抖音视频地址")
         max_bytes = (
             self.max_video_size_mb * 1024 * 1024 if self.max_video_size_mb > 0 else None
         )
-        size_mb = await self._estimate_total_size_mb(url, None, headers=IOS_HEADERS)
-        logger.debug(
-            "🎵 估算抖音视频大小: %s MB",
-            f"{size_mb:.2f}" if size_mb is not None else "未知",
-        )
-        if size_mb is not None and max_bytes and size_mb * 1024 * 1024 > max_bytes:
-            raise SizeLimitExceeded("超过大小限制")
-        output_path = self._build_douyin_path(url, is_video=True, request_id=request_id)
-        await self._download_stream(
-            url, output_path, cookies=None, max_bytes=max_bytes, headers=IOS_HEADERS
-        )
-        return output_path
-
-    async def _download_douyin_image(self, url: str, request_id: str) -> Path:
         output_path = self._build_douyin_path(
-            url, is_video=False, request_id=request_id
+            candidates[0], is_video=True, request_id=request_id
         )
-        await self._download_stream(
-            url, output_path, cookies=None, max_bytes=None, headers=ANDROID_HEADERS
+        last_error: Exception | None = None
+        for index, url in enumerate(candidates):
+            try:
+                size_mb = await self._estimate_total_size_mb(
+                    url, None, headers=IOS_HEADERS
+                )
+                logger.debug(
+                    "🎵 估算抖音视频大小: %s MB",
+                    f"{size_mb:.2f}" if size_mb is not None else "未知",
+                )
+                if (
+                    size_mb is not None
+                    and max_bytes
+                    and size_mb * 1024 * 1024 > max_bytes
+                ):
+                    raise SizeLimitExceeded("超过大小限制")
+                await self._download_stream(
+                    url,
+                    output_path,
+                    cookies=None,
+                    max_bytes=max_bytes,
+                    headers=IOS_HEADERS,
+                    retries=max(1, int(getattr(self, "retry_count", 3))),
+                )
+                logger.debug(
+                    "🎵 抖音视频实际使用地址: 候选=%d/%d%s",
+                    index + 1,
+                    len(candidates),
+                    " (已回退)" if index else "",
+                )
+                return output_path
+            except asyncio.CancelledError:
+                raise
+            except SizeLimitExceeded:
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "⚠️ 抖音视频候选超过大小限制, 尝试后续低画质/备用地址 (%d/%d)",
+                        index + 1,
+                        len(candidates),
+                    )
+                    continue
+                raise
+            except Exception as exc:
+                last_error = exc
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "⚠️ 抖音视频地址不可用, 尝试候选地址 (%d/%d): %s",
+                        index + 1,
+                        len(candidates),
+                        str(exc),
+                    )
+        if last_error:
+            raise last_error
+        raise RuntimeError("抖音视频下载失败")
+
+    async def _download_douyin_image(
+        self, urls: str | list[str], request_id: str
+    ) -> Path:
+        candidates = [urls] if isinstance(urls, str) else list(dict.fromkeys(urls))
+        if not candidates:
+            raise RuntimeError("没有可用的抖音图片地址")
+        output_path = self._build_douyin_path(
+            candidates[0], is_video=False, request_id=request_id
         )
-        return output_path
+        last_error: Exception | None = None
+        for index, url in enumerate(candidates):
+            try:
+                await self._download_stream(
+                    url,
+                    output_path,
+                    cookies=None,
+                    max_bytes=None,
+                    headers=ANDROID_HEADERS,
+                    retries=max(1, int(getattr(self, "retry_count", 3))),
+                )
+                return output_path
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "⚠️ 抖音图片地址不可用, 尝试候选地址 (%d/%d): %s",
+                        index + 1,
+                        len(candidates),
+                        str(exc),
+                    )
+        if last_error:
+            raise last_error
+        raise RuntimeError("抖音图片下载失败")
 
     async def _download_douyin_cover(
         self, cover_url: str, request_id: str
@@ -138,6 +216,7 @@ class DouyinMixin:
         comments: int | None,
         request_id: str,
     ) -> Path | None:
+        cover_path: Path | None = None
         try:
             cover_path = (
                 await self._download_douyin_cover(cover_url, request_id)
@@ -164,16 +243,34 @@ class DouyinMixin:
             # 使用标题哈希作为卡片文件名
             name = self._hash_url(title + author)
             card_path = get_douyin_card_path() / f"{name}_{request_id}_card.png"
-            # save 操作也放在线程池中
-            await asyncio.to_thread(card_img.save, card_path)
+            await save_image_file(card_img, card_path)
             return card_path
         except Exception as exc:
             logger.warning("⚠️ 抖音卡片渲染失败: %s", str(exc))
             return None
+        finally:
+            if cover_path:
+                await asyncio.to_thread(cover_path.unlink, missing_ok=True)
 
     # region 抖音处理
     async def _process_douyin(
         self, event: AstrMessageEvent, target_link: str, is_from_card: bool = False
+    ):
+        media_paths: list[Path] = []
+        try:
+            await DouyinMixin._process_douyin_inner(
+                self, event, target_link, is_from_card, media_paths
+            )
+        finally:
+            if media_paths:
+                await self.cleanup_files(media_paths, [])
+
+    async def _process_douyin_inner(
+        self,
+        event: AstrMessageEvent,
+        target_link: str,
+        is_from_card: bool,
+        media_paths: list[Path],
     ):
         process_start = time.perf_counter()
         timing = {}  # 记录各步骤耗时
@@ -289,7 +386,6 @@ class DouyinMixin:
             return
 
         media_components: list[object] = []
-        media_paths: list[Path] = []
         failed_images = 0
         failed_dynamics = 0
 
@@ -310,7 +406,14 @@ class DouyinMixin:
             for i, url in enumerate(image_urls):
                 try:
                     img_start = time.perf_counter()
-                    image_path = await self._download_douyin_image(url, request_id)
+                    candidates = (
+                        result.image_url_candidates[i]
+                        if i < len(result.image_url_candidates)
+                        else [url]
+                    )
+                    image_path = await self._download_douyin_image(
+                        candidates, request_id
+                    )
                     media_paths.append(image_path)
                     media_components.append(
                         Image.fromFileSystem(str(image_path.resolve()))
@@ -344,7 +447,14 @@ class DouyinMixin:
             for i, url in enumerate(dynamic_urls):
                 try:
                     dyn_start = time.perf_counter()
-                    video_path = await self._download_douyin_video(url, request_id)
+                    candidates = (
+                        result.dynamic_url_candidates[i]
+                        if i < len(result.dynamic_url_candidates)
+                        else [url]
+                    )
+                    video_path = await self._download_douyin_video(
+                        candidates, request_id
+                    )
                     media_paths.append(video_path)
                     media_components.append(
                         Video.fromFileSystem(str(video_path.resolve()))
@@ -387,7 +497,7 @@ class DouyinMixin:
             try:
                 video_start = time.perf_counter()
                 video_path = await self._download_douyin_video(
-                    result.video_url, request_id
+                    result.video_urls or [result.video_url], request_id
                 )
                 media_paths.append(video_path)
                 media_components.append(Video.fromFileSystem(str(video_path.resolve())))
@@ -459,6 +569,8 @@ class DouyinMixin:
                 comments=result.comments,
                 request_id=request_id,
             )
+            if card_path:
+                media_paths.append(card_path)
         timing["render"] = time.perf_counter() - render_start
         # endregion
 
@@ -516,9 +628,6 @@ class DouyinMixin:
             timing.get("send", 0),
             total_elapsed,
         )
-        # 发送完成后立即清理文件（Direct Send Pattern：此时文件已被读取）
-        if media_paths:
-            await self.cleanup_files(media_paths, [])
 
     # endregion
 

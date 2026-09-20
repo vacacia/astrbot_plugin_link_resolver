@@ -1,5 +1,4 @@
 # region 导入
-from random import choice
 from typing import Any
 
 from msgspec import Struct, field
@@ -48,24 +47,60 @@ class VideoData(Struct):
 
     @property
     def image_urls(self) -> list[str]:
-        return [choice(image.url_list) for image in self.images if image.url_list] if self.images else []
+        return [urls[0] for urls in self.image_url_candidates]
+
+    @property
+    def image_url_candidates(self) -> list[list[str]]:
+        return [
+            list(dict.fromkeys(image.url_list))
+            for image in self.images or []
+            if image.url_list
+        ]
 
     @property
     def video_url(self) -> str | None:
-        if self.video and self.video.play_addr.url_list:
-            return choice(self.video.play_addr.url_list).replace("playwm", "play")
-        return None
+        return self.video_urls[0] if self.video_urls else None
+
+    @property
+    def video_urls(self) -> list[str]:
+        if not self.video:
+            return []
+        return list(
+            dict.fromkeys(
+                url.replace("playwm", "play")
+                for url in self.video.play_addr.url_list
+                if url
+            )
+        )
+
+    @property
+    def dynamic_url_candidates(self) -> list[list[str]]:
+        return [
+            list(
+                dict.fromkeys(
+                    url.replace("playwm", "play")
+                    for url in image.video.play_addr.url_list
+                    if url
+                )
+            )
+            for image in self.images or []
+            if image.video and image.video.play_addr.url_list
+        ]
 
     @property
     def cover_url(self) -> str | None:
-        return choice(self.video.cover.url_list) if self.video and self.video.cover.url_list else None
+        return (
+            self.video.cover.url_list[0]
+            if self.video and self.video.cover.url_list
+            else None
+        )
 
     @property
     def avatar_url(self) -> str | None:
         if (avatar := self.author.avatar_thumb) and avatar.url_list:
-            return choice(avatar.url_list)
+            return avatar.url_list[0]
         if (avatar := self.author.avatar_medium) and avatar.url_list:
-            return choice(avatar.url_list)
+            return avatar.url_list[0]
         return None
 
 
@@ -76,11 +111,13 @@ class VideoInfoRes(Struct):
     def video_data(self) -> VideoData:
         if not self.item_list:
             raise DouyinParseError("no video data in videoInfoRes")
-        return choice(self.item_list)
+        return self.item_list[0]
 
 
 class VideoOrNotePage(Struct):
-    video_info_res: VideoInfoRes = field(name="videoInfoRes", default_factory=VideoInfoRes)
+    video_info_res: VideoInfoRes = field(
+        name="videoInfoRes", default_factory=VideoInfoRes
+    )
 
 
 class LoaderData(Struct):
@@ -98,5 +135,9 @@ class RouterData(Struct):
             return page.video_info_res.video_data
         if page := self.loader_data.note_page:
             return page.video_info_res.video_data
-        raise DouyinParseError("missing video_(id)/page or note_(id)/page in router data")
+        raise DouyinParseError(
+            "missing video_(id)/page or note_(id)/page in router data"
+        )
+
+
 # endregion

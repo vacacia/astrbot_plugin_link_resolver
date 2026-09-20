@@ -2,7 +2,7 @@ plugin:
   plugin_id: link_resolver
   display_name: Link Resolver
   entrypoint: plugins.link_resolver:Plugin
-  version: "1.0.10"
+  version: "1.0.12"
   tools:
     - link_resolver
   default_config:

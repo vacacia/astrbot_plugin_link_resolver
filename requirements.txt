@@ -3,3 +3,4 @@ bilibili-api-python>=17.4.0,<18.0.0
 msgspec
 Pillow
 aiohttp
+gmssl>=3.2.2,<4.0.0
