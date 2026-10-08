@@ -4,3 +4,4 @@ msgspec
 Pillow
 aiohttp
 gmssl>=3.2.2,<4.0.0
+yt-dlp>=2026.8.19
