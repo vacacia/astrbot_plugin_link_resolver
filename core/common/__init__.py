@@ -22,6 +22,8 @@ __all__ = [
     "get_twitter_video_path",
     "get_twitter_image_path",
     "get_youtube_video_path",
+    "get_generic_video_path",
+    "get_generic_cookies_file",
 ]
 
 from .exceptions import SizeLimitExceeded
@@ -39,6 +41,8 @@ from .paths import (
     get_douyin_image_path,
     get_douyin_video_path,
     get_fonts_path,
+    get_generic_cookies_file,
+    get_generic_video_path,
     get_twitter_image_path,
     get_twitter_video_path,
     get_weibo_image_path,

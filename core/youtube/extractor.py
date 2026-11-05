@@ -80,6 +80,9 @@ def _get_yt_dlp_class():
 
 
 class YoutubeExtractor:
+    # 错误文案前缀; 子类(通用站点解析)覆盖
+    label = "YouTube"
+
     def __init__(self, timeout: float = YOUTUBE_REQUEST_TIMEOUT_SEC):
         self.timeout = timeout
 
@@ -127,7 +130,7 @@ class YoutubeExtractor:
         if cookie_file:
             path = Path(cookie_file).expanduser()
             if not path.is_file():
-                raise YoutubeDownloadError(f"YouTube Cookie 文件不存在: {path}")
+                raise YoutubeDownloadError(f"{self.label} Cookie 文件不存在: {path}")
             options["cookiefile"] = str(path)
 
         youtube_args: dict[str, list[str]] = {}
@@ -170,7 +173,7 @@ class YoutubeExtractor:
         except (YoutubeParseError, YoutubeDownloadError):
             raise
         except Exception as exc:
-            raise YoutubeDownloadError(f"YouTube 信息获取失败: {exc}") from exc
+            raise YoutubeDownloadError(f"{self.label} 信息获取失败: {exc}") from exc
         if not isinstance(info, dict):
             raise YoutubeParseError("yt-dlp 返回的信息格式异常")
         return self._result_from_info(info, url)
@@ -258,7 +261,7 @@ class YoutubeExtractor:
     ) -> tuple[YoutubeResult, Path]:
         def check_cancelled(_progress=None):
             if cancelled.is_set():
-                raise YoutubeDownloadError("YouTube 下载已取消")
+                raise YoutubeDownloadError(f"{self.label} 下载已取消")
 
         check_cancelled()
         options = {
@@ -289,7 +292,7 @@ class YoutubeExtractor:
         except (YoutubeParseError, YoutubeDownloadError):
             raise
         except Exception as exc:
-            raise YoutubeDownloadError(f"YouTube 下载失败: {exc}") from exc
+            raise YoutubeDownloadError(f"{self.label} 下载失败: {exc}") from exc
         output_path = next(
             (path for path in candidates if path.is_file() and path.stat().st_size > 0),
             None,

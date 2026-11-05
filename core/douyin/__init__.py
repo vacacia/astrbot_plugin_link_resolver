@@ -32,6 +32,11 @@ ANDROID_HEADERS = {
         "Edg/132.0.0.0"
     )
 }
+
+# 媒体 CDN(douyinvod/douyinpic)下载专用: 补 Referer, 减少 403
+DOUYIN_REFERER = "https://www.douyin.com/"
+IOS_MEDIA_HEADERS = {**IOS_HEADERS, "Referer": DOUYIN_REFERER}
+ANDROID_MEDIA_HEADERS = {**ANDROID_HEADERS, "Referer": DOUYIN_REFERER}
 # endregion
 
 # region 链接正则
@@ -245,7 +250,10 @@ class DouyinExtractor:
         if not matched or not matched.group(1):
             raise DouyinParseError("missing router data")
 
-        router_data = msgspec.json.decode(matched.group(1).strip(), type=RouterData)
+        try:
+            router_data = msgspec.json.decode(matched.group(1).strip(), type=RouterData)
+        except msgspec.DecodeError as exc:
+            raise DouyinParseError(f"router data decode failed: {exc}") from exc
         video_data = router_data.video_data
 
         image_url_candidates = video_data.image_url_candidates
@@ -413,9 +421,12 @@ class DouyinExtractor:
             response = await client.get(url, params=params)
         response.raise_for_status()
 
-        slides_data = msgspec.json.decode(
-            response.content, type=SlidesInfo
-        ).aweme_details
+        try:
+            slides_data = msgspec.json.decode(
+                response.content, type=SlidesInfo
+            ).aweme_details
+        except msgspec.DecodeError as exc:
+            raise DouyinParseError(f"slides data decode failed: {exc}") from exc
         if not slides_data:
             raise DouyinParseError("slides data is empty")
         slides = slides_data[0]
@@ -557,9 +568,11 @@ class DouyinExtractor:
 # region 导出
 __all__ = [
     "ANDROID_HEADERS",
+    "ANDROID_MEDIA_HEADERS",
     "DOUYIN_MESSAGE_PATTERN",
     "DOUYIN_SHORT_LINK_PATTERN",
     "IOS_HEADERS",
+    "IOS_MEDIA_HEADERS",
     "DouyinExtractor",
     "DouyinParseError",
     "DouyinResult",

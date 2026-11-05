@@ -14,8 +14,9 @@
 - 📕 **小红书原图解析**：支持视频、图文和 Live Photo，可下载原图并自动尝试备用地址
 - 🚦 **群过滤(黑/白名单)**：按群号控制哪些群启用解析，私聊不受影响
 - 🐦 **微博解析**：支持单条微博正文、图片、视频，默认原图优先
-- 𝕏 **X 解析**：支持 `twitter.com` / `x.com` 推文图片和视频解析
+- 𝕏 **X 解析**：支持 `twitter.com` / `x.com` 推文文字、图片和视频解析
 - ▶️ **YouTube 视频解析**：基于 yt-dlp 下载可用视频流，支持分辨率、编码和时长限制
+- 🌐 **通用站点(yt-dlp 兜底, 默认关闭)**：yt-dlp 认识的站点(TikTok/Instagram/Facebook/AcFun/Reddit 等)的单个视频, 不接管已有专用解析器的平台
 - 🧾 **摘要模式**：B站、抖音和小红书支持文字摘要或渲染卡片
 - 🔤 **字体管理**：支持自定义字体，也可按需安装托管字体
 
@@ -131,6 +132,19 @@ ffmpeg -version
 | `twitter_settings.max_media` | 单条推文最多发送媒体数 | 99 |
 | `twitter_settings.merge_send` | 单视频推文使用合并转发 | ❌ 关闭 |
 
+### 通用站点设置(yt-dlp 兜底)
+
+勾选「通用站点」后生效
+凡是 yt-dlp 有专用提取器认识的链接(TikTok, Instagram, Facebook, AcFun, Reddit, niconico 等上千个站点)都会尝试下载单个点播视频
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `generic_settings.max_height` | 分辨率上限: 原画, 1080P, 720P 或 480P | `720P` |
+| `generic_settings.max_duration_seconds` | 最大视频时长(秒), 超过即忽略; 0 为不限 | `300` |
+| `generic_settings.merge_send` | 合并发送标题, 作者和视频 | 关 |
+| `generic_settings.blocked_domains` | 排除的域名(黑名单), 含子域名 | 空 |
+| `generic_settings.cookies` | 可选. 完整 Netscape `cookies.txt`, 用于 Reddit/西瓜视频/Vimeo 等需登录站点 | 空 |
+
 ### YouTube 设置
 
 需要 yt-dlp 2026.8.19 或更新版本.
@@ -174,7 +188,8 @@ ffmpeg -version
 
 ### X 默认行为
 
-- 纯图片推文：始终合并转发，并带文字摘要
+- 纯文字推文：始终合并转发，先发信息节点，再发完整正文（超长自动分成多个气泡）
+- 纯图片推文：始终合并转发，信息节点和正文节点之后是图片
 - 单视频推文：按 `twitter_settings.merge_send` 决定是否合并转发
 - 多视频或图文混合推文：始终合并转发，避免非合并模式下丢媒体
 - 当前不提供代理配置

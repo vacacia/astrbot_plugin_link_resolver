@@ -2,9 +2,10 @@
 
 流程：
 1. 从消息中提取 X / Twitter 链接并调用 extractor 解析。
-2. 下载推文图片或视频，多媒体混合推文会同时保留图片和视频。
-3. 纯图片、多视频、图文混合推文始终合并转发；单视频推文按配置决定。
-4. 非合并模式下只发单独视频，不发送摘要节点。
+2. 下载推文图片或视频，多媒体混合推文会同时保留图片和视频；纯文字推文无需下载。
+3. 纯文字、纯图片、多视频、图文混合推文始终合并转发；单视频推文按配置决定。
+4. 合并转发的节点顺序：信息节点（作者/时间/链接） -> 正文节点（完整正文按字数上限分段） -> 媒体节点。
+5. 非合并模式下只发单独视频，不发送信息和正文节点。
 """
 
 from __future__ import annotations
@@ -25,6 +26,35 @@ from . import (
     TwitterResult,
     extract_twitter_links,
 )
+
+
+# region 正文分段
+TWITTER_TEXT_CHUNK_SIZE = 1000
+
+
+def split_twitter_text(text: str, limit: int = TWITTER_TEXT_CHUNK_SIZE) -> list[str]:
+    """把正文切成不超过 limit 字的片段，优先在空行、换行、空格处断开，不丢任何字符。"""
+    text = (text or "").strip()
+    chunks: list[str] = []
+    while len(text) > limit:
+        window = text[:limit]
+        cut = 0
+        for sep in ("\n\n", "\n", " "):
+            idx = window.rfind(sep)
+            if idx > limit // 2:
+                cut = idx + len(sep)
+                break
+        cut = cut or limit
+        chunk = text[:cut].strip()
+        if chunk:
+            chunks.append(chunk)
+        text = text[cut:].lstrip("\n")
+    if text.strip():
+        chunks.append(text.strip())
+    return chunks
+
+
+# endregion
 
 
 class TwitterMixin:
@@ -75,26 +105,14 @@ class TwitterMixin:
         )
         return output_path
 
-    def _build_twitter_summary(self, result: TwitterResult) -> str:
-        lines: list[str] = []
-        header = []
-        if result.author:
-            header.append(f"X @{result.author}")
-        else:
-            header.append("X")
+    def _build_twitter_info(self, result: TwitterResult) -> str:
+        header = [f"X @{result.author}" if result.author else "X"]
         if result.created_at:
             header.append(result.created_at)
-        lines.append(" | ".join(header))
-
-        if result.text:
-            text = result.text.strip()
-            if len(text) > 1200:
-                text = text[:1197] + "..."
-            lines.append(text)
-
+        lines = [" | ".join(header)]
         if result.source_url:
             lines.append(f"链接: {result.source_url}")
-        return "\n".join(line for line in lines if line)
+        return "\n".join(lines)
 
     async def _process_twitter(
         self, event: AstrMessageEvent, target_link: str, is_from_card: bool = False
@@ -178,11 +196,20 @@ class TwitterMixin:
             )
             return
 
-        if not result.video_urls and not result.image_urls:
-            logger.warning("⚠️ X 未找到可下载媒体%s", source_tag)
+        text_chunks = split_twitter_text(result.text or "")
+        if not result.has_media and not text_chunks:
+            logger.warning("⚠️ X 推文既无正文也无媒体%s", source_tag)
             return
+        logger.debug(
+            "𝕏 解析结果%s: 正文=%d字/%d段, 图片=%d, 视频=%d",
+            source_tag,
+            len(result.text or ""),
+            len(text_chunks),
+            len(result.image_urls),
+            len(result.video_urls),
+        )
 
-        summary_text = self._build_twitter_summary(result)
+        info_text = self._build_twitter_info(result)
         media_components: list[object] = []
         media_paths: list[Path] = []
         failed_media = 0
@@ -222,7 +249,7 @@ class TwitterMixin:
                 logger.warning("⚠️ X 图片下载失败%s: %s", source_tag, str(exc))
 
         timing["download"] = time.perf_counter() - download_start
-        if not media_components:
+        if result.has_media and not media_components:
             logger.warning(
                 "⚠️ X 媒体下载全部失败%s, 下载耗时=%.2fs",
                 source_tag,
@@ -235,7 +262,8 @@ class TwitterMixin:
         has_multi_video = len(video_urls) > 1
         has_mixed_media = bool(video_urls and image_urls)
         enable_merge_send = (
-            is_image_post
+            not result.has_media
+            or is_image_post
             or has_multi_video
             or has_mixed_media
             or (is_single_video and self.twitter_merge_send)
@@ -246,10 +274,8 @@ class TwitterMixin:
             if enable_merge_send:
                 nodes = Nodes([])
                 sender_uin = self._get_merge_sender_uin(event)
-                if summary_text:
-                    nodes.nodes.append(
-                        Node(uin=sender_uin, content=[Plain(summary_text)])
-                    )
+                for text in [info_text, *text_chunks]:
+                    nodes.nodes.append(Node(uin=sender_uin, content=[Plain(text)]))
                 for component in media_components:
                     merge_component = await self._prepare_component_for_merge_send(
                         component

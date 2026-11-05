@@ -24,8 +24,13 @@ for candidate in Path(__file__).resolve().parents:
         break
 
 from astrbot.api.message_components import Plain, Video
+from data.plugins.astrbot_plugin_link_resolver.core.generic import GenericExtractor
 from data.plugins.astrbot_plugin_link_resolver.core.twitter import TwitterResult
-from data.plugins.astrbot_plugin_link_resolver.core.twitter.handler import TwitterMixin
+from data.plugins.astrbot_plugin_link_resolver.core.twitter.handler import (
+    TWITTER_TEXT_CHUNK_SIZE,
+    TwitterMixin,
+    split_twitter_text,
+)
 from data.plugins.astrbot_plugin_link_resolver.main import LinkResolver
 
 
@@ -105,7 +110,7 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
                 _get_merge_sender_uin=lambda event: "10001",
                 cleanup_files=AsyncMock(),
             )
-            plugin._build_twitter_summary = TwitterMixin._build_twitter_summary.__get__(
+            plugin._build_twitter_info = TwitterMixin._build_twitter_info.__get__(
                 plugin, TwitterMixin
             )
 
@@ -115,11 +120,12 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(event.sent), 1)
         nodes = event.sent[0].chain[0]
-        self.assertGreaterEqual(len(nodes.nodes), 3)
-        first_component = nodes.nodes[0].content[0]
-        self.assertIsInstance(first_component, Plain)
-        self.assertIn("X @Alice(@alice)", first_component.text)
-        self.assertIn("图片正文", first_component.text)
+        self.assertEqual(len(nodes.nodes), 4)
+        info_component = nodes.nodes[0].content[0]
+        self.assertIsInstance(info_component, Plain)
+        self.assertIn("X @Alice(@alice)", info_component.text)
+        self.assertNotIn("图片正文", info_component.text)
+        self.assertEqual(nodes.nodes[1].content[0].text, "图片正文")
 
     async def test_process_twitter_single_video_non_merged_sends_only_video(self):
         event = DummyEvent()
@@ -156,7 +162,7 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
                 _get_merge_sender_uin=lambda event: "10001",
                 cleanup_files=AsyncMock(),
             )
-            plugin._build_twitter_summary = TwitterMixin._build_twitter_summary.__get__(
+            plugin._build_twitter_info = TwitterMixin._build_twitter_info.__get__(
                 plugin, TwitterMixin
             )
 
@@ -203,7 +209,7 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
                 _get_merge_sender_uin=lambda event: "10001",
                 cleanup_files=AsyncMock(),
             )
-            plugin._build_twitter_summary = TwitterMixin._build_twitter_summary.__get__(
+            plugin._build_twitter_info = TwitterMixin._build_twitter_info.__get__(
                 plugin, TwitterMixin
             )
 
@@ -251,7 +257,7 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
                 _get_merge_sender_uin=lambda event: "10001",
                 cleanup_files=AsyncMock(),
             )
-            plugin._build_twitter_summary = TwitterMixin._build_twitter_summary.__get__(
+            plugin._build_twitter_info = TwitterMixin._build_twitter_info.__get__(
                 plugin, TwitterMixin
             )
 
@@ -261,8 +267,9 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(event.sent), 1)
         nodes = event.sent[0].chain[0]
-        self.assertEqual(len(nodes.nodes), 2)
+        self.assertEqual(len(nodes.nodes), 3)
         self.assertIsInstance(nodes.nodes[0].content[0], Plain)
+        self.assertEqual(nodes.nodes[1].content[0].text, "视频正文")
         plugin._prepare_component_for_merge_send.assert_awaited_once()
 
     async def test_process_twitter_mixed_media_forces_merge_even_when_disabled(self):
@@ -302,7 +309,7 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
                 _get_merge_sender_uin=lambda event: "10001",
                 cleanup_files=AsyncMock(),
             )
-            plugin._build_twitter_summary = TwitterMixin._build_twitter_summary.__get__(
+            plugin._build_twitter_info = TwitterMixin._build_twitter_info.__get__(
                 plugin, TwitterMixin
             )
 
@@ -312,9 +319,90 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(event.sent), 1)
         nodes = event.sent[0].chain[0]
-        self.assertEqual(len(nodes.nodes), 3)
+        self.assertEqual(len(nodes.nodes), 4)
         self.assertIsInstance(nodes.nodes[0].content[0], Plain)
+        self.assertEqual(nodes.nodes[1].content[0].text, "混合正文")
         self.assertEqual(plugin._prepare_component_for_merge_send.await_count, 2)
+
+    def _make_text_only_plugin(self, text: str | None, merge_send: bool = False):
+        plugin = SimpleNamespace(
+            twitter_enabled=True,
+            twitter_merge_send=merge_send,
+            twitter_max_media=99,
+            retry_count=0,
+            max_video_size_mb=200,
+            twitter_extractor=SimpleNamespace(
+                parse=AsyncMock(
+                    return_value=TwitterResult(
+                        text=text,
+                        author="Eve(@eve)",
+                        created_at="2025-08-09",
+                        image_urls=[],
+                        video_urls=[],
+                        source_url="https://x.com/eve/status/1234567890123456789",
+                        tweet_id="1234567890123456789",
+                    )
+                )
+            ),
+            _refresh_config=lambda: None,
+            _send_reaction_emoji=AsyncMock(),
+            _download_twitter_image=AsyncMock(),
+            _download_twitter_video=AsyncMock(),
+            _prepare_component_for_merge_send=AsyncMock(),
+            _get_merge_sender_uin=lambda event: "10001",
+            cleanup_files=AsyncMock(),
+        )
+        plugin._build_twitter_info = TwitterMixin._build_twitter_info.__get__(
+            plugin, TwitterMixin
+        )
+        return plugin
+
+    async def test_process_twitter_text_only_merges_info_then_full_text(self):
+        event = DummyEvent()
+        text = "\n\n".join(f"第{i}段" + "字" * 400 for i in range(8))
+        plugin = self._make_text_only_plugin(text, merge_send=False)
+
+        await TwitterMixin._process_twitter(
+            plugin, event, "https://x.com/eve/status/1234567890123456789"
+        )
+
+        self.assertEqual(len(event.sent), 1)
+        nodes = event.sent[0].chain[0].nodes
+        texts = [node.content[0].text for node in nodes]
+        self.assertIn("X @Eve(@eve)", texts[0])
+        self.assertIn("链接: https://x.com/eve/status/1234567890123456789", texts[0])
+        body = texts[1:]
+        self.assertGreater(len(body), 1)
+        self.assertTrue(all(len(t) <= TWITTER_TEXT_CHUNK_SIZE for t in body))
+        self.assertEqual("".join(body).replace("\n", ""), text.replace("\n", ""))
+        plugin._download_twitter_image.assert_not_awaited()
+        plugin._download_twitter_video.assert_not_awaited()
+        plugin._prepare_component_for_merge_send.assert_not_awaited()
+        plugin.cleanup_files.assert_not_awaited()
+
+    async def test_process_twitter_empty_tweet_sends_nothing(self):
+        event = DummyEvent()
+        plugin = self._make_text_only_plugin(None)
+
+        await TwitterMixin._process_twitter(
+            plugin, event, "https://x.com/eve/status/1234567890123456789"
+        )
+
+        self.assertEqual(event.sent, [])
+
+    def test_split_twitter_text_keeps_every_char_and_respects_limit(self):
+        self.assertEqual(split_twitter_text(""), [])
+        self.assertEqual(split_twitter_text("  短文  "), ["短文"])
+
+        hard = "字" * 2500
+        chunks = split_twitter_text(hard, 1000)
+        self.assertEqual([len(c) for c in chunks], [1000, 1000, 500])
+
+        mixed = ("甲" * 600 + "\n\n") + ("乙" * 600 + "\n") + ("丙" * 600)
+        chunks = split_twitter_text(mixed, 1000)
+        self.assertTrue(all(len(c) <= 1000 for c in chunks))
+        self.assertEqual(chunks[0], "甲" * 600)
+        self.assertEqual("".join(chunks), mixed.replace("\n", ""))
 
     async def test_handle_json_card_dispatches_twitter_link(self):
         event = DummyEvent(
@@ -332,6 +420,8 @@ class TestTwitterHandler(unittest.IsolatedAsyncioTestCase):
             ]
         )
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = True
         plugin.bili_enabled = False
         plugin.douyin_enabled = False
         plugin.xhs_enabled = False

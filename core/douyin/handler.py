@@ -16,8 +16,8 @@ from ..common import (
 )
 from ..common.file_lifecycle import save_image_file
 from . import (
-    ANDROID_HEADERS,
-    IOS_HEADERS,
+    ANDROID_MEDIA_HEADERS,
+    IOS_MEDIA_HEADERS,
     DouyinParseError,
     DouyinResult,
     extract_douyin_links,
@@ -51,7 +51,7 @@ class DouyinMixin:
         for index, url in enumerate(candidates):
             try:
                 size_mb = await self._estimate_total_size_mb(
-                    url, None, headers=IOS_HEADERS
+                    url, None, headers=IOS_MEDIA_HEADERS
                 )
                 logger.debug(
                     "🎵 估算抖音视频大小: %s MB",
@@ -68,7 +68,7 @@ class DouyinMixin:
                     output_path,
                     cookies=None,
                     max_bytes=max_bytes,
-                    headers=IOS_HEADERS,
+                    headers=IOS_MEDIA_HEADERS,
                     retries=max(1, int(getattr(self, "retry_count", 3))),
                 )
                 logger.debug(
@@ -119,7 +119,7 @@ class DouyinMixin:
                     output_path,
                     cookies=None,
                     max_bytes=None,
-                    headers=ANDROID_HEADERS,
+                    headers=ANDROID_MEDIA_HEADERS,
                     retries=max(1, int(getattr(self, "retry_count", 3))),
                 )
                 return output_path
@@ -152,7 +152,7 @@ class DouyinMixin:
                 cover_path,
                 cookies=None,
                 max_bytes=None,
-                headers=ANDROID_HEADERS,
+                headers=ANDROID_MEDIA_HEADERS,
             )
             return cover_path
         except Exception:

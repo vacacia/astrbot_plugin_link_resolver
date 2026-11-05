@@ -22,7 +22,6 @@ for candidate in Path(__file__).resolve().parents:
 
 from data.plugins.astrbot_plugin_link_resolver.core.twitter import (
     TwitterExtractor,
-    TwitterParseError,
     extract_twitter_links,
 )
 
@@ -182,7 +181,7 @@ class TestTwitterExtractor(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_parse_raises_when_tweet_has_no_media(self):
+    async def test_parse_returns_text_only_tweet_without_media(self):
         extractor = TwitterExtractor()
         extractor._fetch_status_json = AsyncMock(
             return_value={
@@ -194,8 +193,12 @@ class TestTwitterExtractor(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        with self.assertRaises(TwitterParseError):
-            await extractor.parse("https://x.com/dave/status/1234567890123456789")
+        result = await extractor.parse("https://x.com/dave/status/1234567890123456789")
+
+        self.assertEqual(result.text, "纯文本")
+        self.assertEqual(result.image_urls, [])
+        self.assertEqual(result.video_urls, [])
+        self.assertFalse(result.has_media)
 
 
 if __name__ == "__main__":

@@ -82,7 +82,7 @@ class SlidesData(Struct):
 
 
 class SlidesInfo(Struct):
-    aweme_details: list[SlidesData] = field(default_factory=list)
+    aweme_details: list[SlidesData] | None = None
 
 
 # endregion

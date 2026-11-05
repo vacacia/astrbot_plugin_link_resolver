@@ -31,6 +31,7 @@ from data.plugins.astrbot_plugin_link_resolver.core.common.font_manager import (
     ManagedFontPaths,
     install_managed_fonts,
 )
+from data.plugins.astrbot_plugin_link_resolver.core.generic import GenericExtractor
 from data.plugins.astrbot_plugin_link_resolver.main import LinkResolver
 
 
@@ -61,6 +62,8 @@ class TestFontInstall(unittest.TestCase):
 
     def test_configure_managed_fonts_disabled_skips_install(self):
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = True
         plugin.config = {"general_settings": {"auto_install_fonts": False}}
         plugin._get_config_value = LinkResolver._get_config_value.__get__(
             plugin, LinkResolver
@@ -82,6 +85,8 @@ class TestFontInstall(unittest.TestCase):
 
     def test_initialize_installs_managed_fonts_off_event_loop(self):
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = False
         plugin.font_auto_install_enabled = True
         plugin._refresh_config = Mock()
         expected = ManagedFontPaths(
@@ -105,6 +110,8 @@ class TestFontInstall(unittest.TestCase):
 
     def test_configure_managed_fonts_enabled_defers_install_to_initialize(self):
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = True
         plugin.config = {"general_settings": {"auto_install_fonts": True}}
         plugin._get_config_value = LinkResolver._get_config_value.__get__(
             plugin, LinkResolver
@@ -126,6 +133,8 @@ class TestFontInstall(unittest.TestCase):
 
     def test_configure_managed_fonts_sets_custom_paths(self):
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = True
         plugin.config = {
             "general_settings": {
                 "auto_install_fonts": False,
@@ -156,6 +165,8 @@ class TestFontInstall(unittest.TestCase):
 
     def test_refresh_config_defaults_xhs_prefer_ci_png_to_true(self):
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = True
         plugin.config = {}
         plugin.font_auto_install_enabled = False
         plugin.custom_primary_font_path = None
@@ -201,6 +212,8 @@ class TestFontInstall(unittest.TestCase):
 
     def test_refresh_config_rebuilds_xhs_renderer_with_latest_font(self):
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = True
         plugin.config = {}
         plugin.font_auto_install_enabled = False
         plugin.custom_primary_font_path = None
@@ -250,6 +263,8 @@ class TestFontInstall(unittest.TestCase):
 
     def test_refresh_config_preserves_explicit_empty_reaction_emoji_list(self):
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = True
         plugin.config = {
             "general_settings": {
                 "reaction_emoji_list": [],

@@ -24,6 +24,7 @@ for candidate in Path(__file__).resolve().parents:
         break
 
 from astrbot.api.message_components import Video
+from data.plugins.astrbot_plugin_link_resolver.core.generic import GenericExtractor
 from data.plugins.astrbot_plugin_link_resolver.core.weibo import WeiboResult
 from data.plugins.astrbot_plugin_link_resolver.core.weibo.handler import WeiboMixin
 from data.plugins.astrbot_plugin_link_resolver.main import LinkResolver
@@ -95,6 +96,8 @@ class TestWeiboHandler(unittest.IsolatedAsyncioTestCase):
             ]
         )
         plugin = LinkResolver.__new__(LinkResolver)
+        plugin.generic_extractor = GenericExtractor()
+        plugin.generic_enabled = True
         plugin.bili_enabled = False
         plugin.douyin_enabled = False
         plugin.xhs_enabled = False

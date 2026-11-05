@@ -1,7 +1,7 @@
 {
     "enable_platforms": {
         "description": "启用的平台",
-        "hint": "勾选要启用解析的平台。",
+        "hint": "勾选要启用解析的平台。「通用站点」默认不勾选: 凡是 yt-dlp 有专用提取器认识的链接(TikTok/Instagram/Facebook 等上千个站点)都会尝试下载视频。",
         "type": "list",
         "options": [
             "B站",
@@ -9,7 +9,8 @@
             "小红书",
             "微博",
             "X",
-            "YouTube"
+            "YouTube",
+            "通用站点"
         ],
         "default": [
             "B站",
@@ -233,6 +234,50 @@
                     "default",
                     "web_embedded"
                 ]
+            }
+        }
+    },
+    "generic_settings": {
+        "description": "通用站点设置(yt-dlp)",
+        "type": "object",
+        "items": {
+            "max_height": {
+                "description": "最高下载分辨率",
+                "type": "string",
+                "hint": "通用站点下载高度上限; 原画不设上限, 仍受大小限制.",
+                "default": "720P",
+                "options": [
+                    "原画 (最高画质)",
+                    "1080P",
+                    "720P",
+                    "480P"
+                ]
+            },
+            "max_duration_seconds": {
+                "description": "最大视频时长(秒)",
+                "type": "int",
+                "hint": "超过此时长不下载; 0 为不限.",
+                "default": 300,
+                "min": 0,
+                "max": 86400
+            },
+            "merge_send": {
+                "description": "通用站点合并发送",
+                "type": "bool",
+                "hint": "合并发送标题、作者和视频; 关闭则只发视频.",
+                "default": false
+            },
+            "cookies": {
+                "description": "通用站点 Cookies",
+                "type": "string",
+                "hint": "可选. 粘贴完整 Netscape cookies.txt(可包含多个站点的 cookie, yt-dlp 只会发送域名匹配的部分), 用于 Reddit/西瓜视频/Vimeo 等需要登录的站点. 不要粘贴 k=v;... 请求头.",
+                "default": ""
+            },
+            "blocked_domains": {
+                "description": "排除的域名(黑名单)",
+                "type": "list",
+                "hint": "这些域名及其子域名不会被通用解析处理, 每行一个域名. 默认为空. 已有专用解析器的平台(B站/抖音/小红书/微博/X/YouTube)始终被排除.",
+                "default": []
             }
         }
     },

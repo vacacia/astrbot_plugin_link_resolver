@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import time
+import traceback
 from pathlib import Path
 from random import choice
 from urllib.parse import urlparse
@@ -19,6 +20,7 @@ from .core.bilibili import BILI_MESSAGE_PATTERN, BilibiliMixin
 from .core.common import (
     SizeLimitExceeded,
     get_bili_cookies_file,
+    get_generic_cookies_file,
     get_youtube_cookies_file,
 )
 from .core.common.card_renderer import find_default_font, find_emoji_font
@@ -31,6 +33,16 @@ from .core.common.font_manager import (
 )
 from .core.douyin import DOUYIN_MESSAGE_PATTERN, DouyinExtractor
 from .core.douyin.handler import DouyinMixin
+from .core.generic import GENERIC_URL_PATTERN, GenericExtractor
+from .core.generic.handler import GenericMixin
+from .core.registry import (
+    PLATFORM_BY_KEY,
+    PLATFORM_DEFAULT_LABELS,
+    PLATFORM_LABELS,
+    PLATFORMS,
+    TASK_QUALNAME_TOKENS,
+    classify_links,
+)
 from .core.twitter import TWITTER_MESSAGE_PATTERN, TwitterExtractor
 from .core.twitter.handler import TwitterMixin
 from .core.weibo import WEIBO_MESSAGE_PATTERN, WeiboExtractor
@@ -48,6 +60,8 @@ from .core.youtube.handler import YoutubeMixin
 
 # region 运行时常量
 TASK_NAME_PREFIX = "link-resolver-parse"
+# JSON 卡片分发时, 平台处理完毕的标记(由 _card_* 异步生成器在最后产出, 不会转发给框架)
+CARD_HANDLED = object()
 SUMMARY_MODE_TEXT = "文字摘要"
 SUMMARY_MODE_CARD = "渲染卡片"
 # endregion
@@ -57,8 +71,8 @@ SUMMARY_MODE_CARD = "渲染卡片"
 @register(
     "astrbot_plugin_link_resolver",
     "acacia",
-    "解析 & 下载 Bilibili/抖音/小红书/微博/X/YouTube",
-    "1.0.14",
+    "解析 & 下载 Bilibili/抖音/小红书/微博/X/YouTube/通用站点(yt-dlp)",
+    "1.0.15",
 )
 class LinkResolverPlugin(
     BilibiliMixin,
@@ -67,6 +81,7 @@ class LinkResolverPlugin(
     WeiboMixin,
     TwitterMixin,
     YoutubeMixin,
+    GenericMixin,
     Star,
 ):
     def __init__(self, context: Context, config: AstrBotConfig | dict | None = None):
@@ -83,6 +98,7 @@ class LinkResolverPlugin(
         self.twitter_extractor = TwitterExtractor()
         self.font_auto_install_enabled = False
         self.youtube_extractor = YoutubeExtractor()
+        self.generic_extractor = GenericExtractor()
         self.custom_primary_font_path: str | None = None
         self.custom_emoji_font_path: str | None = None
         self.user_primary_font_ready = False
@@ -93,7 +109,9 @@ class LinkResolverPlugin(
         self._refresh_config()
 
     async def initialize(self) -> None:
-        """在后台线程安装可选字体, 避免阻塞 AstrBot 的事件循环."""
+        """在后台线程做耗时初始化(预加载提取器, 安装可选字体), 避免阻塞事件循环."""
+        if self.generic_enabled:
+            await asyncio.to_thread(self.generic_extractor.warm_up)
         if not self.font_auto_install_enabled:
             return
 
@@ -149,16 +167,13 @@ class LinkResolverPlugin(
 
         # 平台启用列表
         enable_platforms = self._get_config_value(
-            "enable_platforms", ["B站", "抖音", "小红书", "微博", "X", "YouTube"]
+            "enable_platforms", list(PLATFORM_DEFAULT_LABELS)
         )
         if not isinstance(enable_platforms, list):
-            enable_platforms = ["B站", "抖音", "小红书", "微博", "X", "YouTube"]
-        self.bili_enabled = "B站" in enable_platforms
-        self.douyin_enabled = "抖音" in enable_platforms
-        self.xhs_enabled = "小红书" in enable_platforms
-        self.weibo_enabled = "微博" in enable_platforms
-        self.twitter_enabled = "X" in enable_platforms
-        self.youtube_enabled = "YouTube" in enable_platforms
+            enable_platforms = list(PLATFORM_DEFAULT_LABELS)
+        # 生成 bili_enabled / douyin_enabled / ... (属性名由注册表决定)
+        for platform in PLATFORMS:
+            setattr(self, platform.enabled_attr, platform.label in enable_platforms)
 
         # B站配置
         self.quality_label = str(
@@ -244,6 +259,49 @@ class LinkResolverPlugin(
         )
         self.twitter_merge_send = bool(
             self._get_config_value("twitter_settings.merge_send", False)
+        )
+
+        # 通用站点(yt-dlp 兜底)配置
+        generic_height_options = {
+            "原画 (最高画质)": 0,
+            "1080P": 1080,
+            "720P": 720,
+            "480P": 480,
+        }
+        self.generic_max_height = generic_height_options.get(
+            str(self._get_config_value("generic_settings.max_height", "720P"))
+            .strip()
+            .upper(),
+            720,
+        )
+        try:
+            self.generic_max_duration_seconds = max(
+                0,
+                int(
+                    self._get_config_value("generic_settings.max_duration_seconds", 300)
+                ),
+            )
+        except (TypeError, ValueError):
+            self.generic_max_duration_seconds = 300
+        self.generic_merge_send = bool(
+            self._get_config_value("generic_settings.merge_send", False)
+        )
+        self.generic_cookies_file = None
+        generic_cookies_text = str(
+            self._get_config_value("generic_settings.cookies", "")
+        ).strip()
+        if generic_cookies_text:
+            try:
+                cookies_file = get_generic_cookies_file()
+                cookies_file.write_text(generic_cookies_text, encoding="utf-8")
+                self.generic_cookies_file = str(cookies_file)
+            except Exception as exc:
+                logger.warning("⚠️ 写入通用站点 Cookie 文件失败: %s", str(exc))
+        _blocked_domains = self._get_config_value(
+            "generic_settings.blocked_domains", []
+        )
+        self.generic_extractor.set_blocked_domains(
+            _blocked_domains if isinstance(_blocked_domains, list) else []
         )
 
         # YouTube 配置
@@ -397,11 +455,7 @@ class LinkResolverPlugin(
         )
 
         # 构建启用平台列表
-        enabled_list = [
-            p
-            for p in ["B站", "抖音", "小红书", "微博", "X", "YouTube"]
-            if p in enable_platforms
-        ]
+        enabled_list = [p for p in PLATFORM_LABELS if p in enable_platforms]
         duration_label = (
             f"{self.bili_max_duration_seconds}s"
             if self.bili_max_duration_seconds > 0
@@ -534,23 +588,7 @@ class LinkResolverPlugin(
                     qualname = getattr(task.get_coro(), "__qualname__", "")
                 except Exception:
                     qualname = ""
-                if any(
-                    token in qualname
-                    for token in (
-                        "handle_xhs",
-                        "handle_weibo",
-                        "handle_douyin",
-                        "handle_bili_video",
-                        "handle_twitter",
-                        "handle_youtube",
-                        "_process_xhs",
-                        "_process_weibo",
-                        "_process_douyin",
-                        "_process_bili_video",
-                        "_process_twitter",
-                        "_process_youtube",
-                    )
-                ):
+                if any(token in qualname for token in TASK_QUALNAME_TOKENS):
                     candidates.add(task)
 
         for task in candidates:
@@ -948,6 +986,19 @@ class LinkResolverPlugin(
                 last_error = exc
                 if temp_path.exists():
                     await asyncio.to_thread(temp_path.unlink, missing_ok=True)
+                # 4xx(除 408/429)多为地址过期/签名或 Referer 不被接受, 重试同一地址无意义,
+                # 直接抛出, 让调用方切换候选地址
+                if (
+                    isinstance(exc, httpx.HTTPStatusError)
+                    and 400 <= exc.response.status_code < 500
+                    and exc.response.status_code not in (408, 429)
+                ):
+                    logger.debug(
+                        "⏭️ 下载返回 %s, 不重试同一地址: %s",
+                        exc.response.status_code,
+                        url[:120],
+                    )
+                    raise
                 if attempt < retries - 1:
                     wait_time = 2**attempt
                     logger.warning(
@@ -1068,60 +1119,150 @@ class LinkResolverPlugin(
     # endregion
 
     # region 事件处理器
+    # 每个平台的 @filter.regex 处理器必须静态声明(框架限制), 但都只做三件事:
+    # 过滤 -> 登记任务 -> 交给 _guarded / _guarded_stream 执行(统一兜底).
     @filter.regex(BILI_MESSAGE_PATTERN, priority=10)
     async def handle_bili_video(self, event: AstrMessageEvent):
-        if self._has_json_component(event):
-            return
-        if not self._is_group_allowed(event):
+        if self._has_json_component(event) or not self._is_group_allowed(event):
             return
         self._register_parse_task("bili", event)
-        await BilibiliMixin.handle_bili_video(self, event)
+        await self._guarded("bili", event, BilibiliMixin.handle_bili_video(self, event))
 
     @filter.regex(DOUYIN_MESSAGE_PATTERN, priority=10)
     async def handle_douyin(self, event: AstrMessageEvent):
-        if self._has_json_component(event):
-            return
-        if not self._is_group_allowed(event):
+        if self._has_json_component(event) or not self._is_group_allowed(event):
             return
         self._register_parse_task("douyin", event)
-        await DouyinMixin.handle_douyin(self, event)
+        await self._guarded("douyin", event, DouyinMixin.handle_douyin(self, event))
 
     @filter.regex(XHS_MESSAGE_PATTERN, priority=10)
     async def handle_xhs(self, event: AstrMessageEvent):
-        if self._has_json_component(event):
-            return
-        if not self._is_group_allowed(event):
+        if self._has_json_component(event) or not self._is_group_allowed(event):
             return
         self._register_parse_task("xhs", event)
-        async for result in XiaohongshuMixin.handle_xhs(self, event):
+        async for result in self._guarded_stream(
+            "xhs", event, XiaohongshuMixin.handle_xhs(self, event)
+        ):
             yield result
 
     @filter.regex(WEIBO_MESSAGE_PATTERN, priority=10)
     async def handle_weibo(self, event: AstrMessageEvent):
-        if self._has_json_component(event):
-            return
-        if not self._is_group_allowed(event):
+        if self._has_json_component(event) or not self._is_group_allowed(event):
             return
         self._register_parse_task("weibo", event)
-        await WeiboMixin.handle_weibo(self, event)
+        await self._guarded("weibo", event, WeiboMixin.handle_weibo(self, event))
 
     @filter.regex(TWITTER_MESSAGE_PATTERN, priority=10)
     async def handle_twitter(self, event: AstrMessageEvent):
-        if self._has_json_component(event):
-            return
-        if not self._is_group_allowed(event):
+        if self._has_json_component(event) or not self._is_group_allowed(event):
             return
         self._register_parse_task("twitter", event)
-        await TwitterMixin.handle_twitter(self, event)
+        await self._guarded("twitter", event, TwitterMixin.handle_twitter(self, event))
 
     @filter.regex(YOUTUBE_MESSAGE_PATTERN, priority=10)
     async def handle_youtube(self, event: AstrMessageEvent):
-        if self._has_json_component(event):
-            return
-        if not self._is_group_allowed(event):
+        if self._has_json_component(event) or not self._is_group_allowed(event):
             return
         self._register_parse_task("youtube", event)
-        await YoutubeMixin.handle_youtube(self, event)
+        await self._guarded("youtube", event, YoutubeMixin.handle_youtube(self, event))
+
+    @filter.regex(GENERIC_URL_PATTERN, priority=10)
+    async def handle_generic(self, event: AstrMessageEvent):
+        if self._has_json_component(event) or not self._is_group_allowed(event):
+            return
+        # 正则对任意链接都会触发; 未启用或不在白名单时 GenericMixin 内部会立即返回,
+        # 所以这里放在域名预检之后再登记任务, 避免给无关消息登记解析任务.
+        if not self.generic_enabled or not self.generic_extractor.extract_links(
+            event.message_str
+        ):
+            return
+        self._register_parse_task("generic", event)
+        await self._guarded("generic", event, GenericMixin.handle_generic(self, event))
+
+    # endregion
+
+    # region 统一兜底
+    def _report_unhandled_error(
+        self, key: str, event: AstrMessageEvent, exc: Exception
+    ) -> None:
+        """记录未被平台流程处理的异常, 并按 error_notify_mode 决定是否通知群聊.
+
+        典型来源: napcat 发送大文件超时(ActionFailed retcode=1200)、
+        解析库抛出的非预期异常. 这些异常若冒到框架会表现为 Star handle error.
+        """
+        label = PLATFORM_BY_KEY[key].label if key in PLATFORM_BY_KEY else key
+        logger.error(
+            "❌ %s 处理出现未捕获异常(已兜底): %s: %s",
+            label,
+            type(exc).__name__,
+            str(exc)[:300],
+        )
+        logger.debug("🔍 %s 异常堆栈:\n%s", label, traceback.format_exc())
+        try:
+            if self.error_notify_mode == "报错":
+                event.set_result(event.plain_result(f"❌ {label} 处理失败: {exc}"))
+            elif self.error_notify_mode == "脱敏":
+                event.set_result(event.plain_result(f"❌ {label} 处理失败"))
+        except Exception as notify_exc:
+            logger.warning("⚠️ 发送失败通知时出错: %s", str(notify_exc))
+
+    async def _guarded(self, key: str, event: AstrMessageEvent, awaitable) -> None:
+        """执行平台协程, 吞掉非取消类异常(取消异常照常向上传播)."""
+        try:
+            await awaitable
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._report_unhandled_error(key, event, exc)
+
+    async def _guarded_stream(
+        self, key: str, event: AstrMessageEvent, agen, error_result=None
+    ):
+        """_guarded 的异步生成器版本(用于 yield 结果的平台, 如小红书).
+
+        error_result 非 None 时, 兜底异常后会额外产出它(卡片分发用它标记"已处理").
+        """
+        try:
+            async for item in agen:
+                yield item
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._report_unhandled_error(key, event, exc)
+            if error_result is not None:
+                yield error_result
+
+    # endregion
+
+    # region JSON 卡片分发
+    # 每个 _card_* 都是异步生成器: 产出的结果转发给框架, 处理完毕后产出 CARD_HANDLED.
+    # 没产出 CARD_HANDLED 表示"链接找到但无法解析", 分发循环会继续尝试下一个平台.
+    async def _card_bili(self, event: AstrMessageEvent, links: list[str]):
+        ref = await self._resolve_video_ref_from_links(links)
+        if not ref:
+            logger.warning("⚠️ 从卡片中找到 B 站链接但无法解析: %s", links)
+            return
+        await self._process_bili_video(event, ref=ref, is_from_card=True)
+        yield CARD_HANDLED
+
+    async def _card_stream(self, process, event: AstrMessageEvent, links: list[str]):
+        async for result in process(event, links[0], is_from_card=True):
+            yield result
+        yield CARD_HANDLED
+
+    async def _card_call(self, process, event: AstrMessageEvent, links: list[str]):
+        await process(event, links[0], is_from_card=True)
+        yield CARD_HANDLED
+
+    def _card_runner(self, key: str):
+        """按平台返回卡片处理器; 新平台默认走 _card_call(调用 _process_<key>)."""
+        platform = PLATFORM_BY_KEY[key]
+        if key == "bili":
+            return self._card_bili
+        process = getattr(self, platform.process_name)
+        if key == "xhs":
+            return lambda event, links: self._card_stream(process, event, links)
+        return lambda event, links: self._card_call(process, event, links)
 
     @filter.regex(r".*")
     async def handle_json_card(self, event: AstrMessageEvent):
@@ -1167,89 +1308,36 @@ class LinkResolverPlugin(
         if not links:
             return
         unique_links = list(dict.fromkeys(links))
-        bili_links = [
-            link for link in unique_links if re.search(BILI_MESSAGE_PATTERN, link)
-        ]
-        douyin_links = [
-            link for link in unique_links if re.search(DOUYIN_MESSAGE_PATTERN, link)
-        ]
-        xhs_links = [
-            link for link in unique_links if re.search(XHS_MESSAGE_PATTERN, link)
-        ]
-        weibo_links = [
-            link for link in unique_links if re.search(WEIBO_MESSAGE_PATTERN, link)
-        ]
-        twitter_links = [
-            link for link in unique_links if re.search(TWITTER_MESSAGE_PATTERN, link)
-        ]
-        youtube_links = [
-            link for link in unique_links if re.search(YOUTUBE_MESSAGE_PATTERN, link)
-        ]
+        # 通用解析关闭时不做 accepts() 预检, 避免无谓地扫描 yt-dlp 提取器
+        grouped = classify_links(
+            unique_links,
+            link_filters={"generic": self.generic_extractor.accepts}
+            if self.generic_enabled
+            else None,
+        )
 
-        if bili_links and self.bili_enabled:
-            self._register_parse_task("json-bili", event)
+        for platform in PLATFORMS:
+            platform_links = grouped.get(platform.key)
+            if not platform_links or not getattr(self, platform.enabled_attr):
+                continue
+            self._register_parse_task(f"json-{platform.key}", event)
             event.should_call_llm(True)
+            handled = False
             try:
-                ref = await self._resolve_video_ref_from_links(bili_links)
-                if ref:
-                    await self._process_bili_video(event, ref=ref, is_from_card=True)
-                    return
-                logger.warning("⚠️ 从卡片中找到 B 站链接但无法解析: %s", bili_links)
-            except asyncio.CancelledError:
-                logger.info("♻️ JSON卡片解析任务已中断")
-                return
-
-        if douyin_links and self.douyin_enabled:
-            self._register_parse_task("json-douyin", event)
-            event.should_call_llm(True)
-            try:
-                await self._process_douyin(event, douyin_links[0], is_from_card=True)
-                return
-            except asyncio.CancelledError:
-                logger.info("♻️ JSON卡片解析任务已中断")
-                return
-
-        if xhs_links and self.xhs_enabled:
-            self._register_parse_task("json-xhs", event)
-            event.should_call_llm(True)
-            try:
-                async for result in self._process_xhs(
-                    event, xhs_links[0], is_from_card=True
+                async for result in self._guarded_stream(
+                    platform.key,
+                    event,
+                    self._card_runner(platform.key)(event, platform_links),
+                    error_result=CARD_HANDLED,
                 ):
+                    if result is CARD_HANDLED:
+                        handled = True
+                        continue
                     yield result
-                return
             except asyncio.CancelledError:
                 logger.info("♻️ JSON卡片解析任务已中断")
                 return
-
-        if weibo_links and self.weibo_enabled:
-            self._register_parse_task("json-weibo", event)
-            event.should_call_llm(True)
-            try:
-                await self._process_weibo(event, weibo_links[0], is_from_card=True)
-                return
-            except asyncio.CancelledError:
-                logger.info("♻️ JSON卡片解析任务已中断")
-                return
-
-        if twitter_links and self.twitter_enabled:
-            self._register_parse_task("json-twitter", event)
-            event.should_call_llm(True)
-            try:
-                await self._process_twitter(event, twitter_links[0], is_from_card=True)
-                return
-            except asyncio.CancelledError:
-                logger.info("♻️ JSON卡片解析任务已中断")
-                return
-
-        if youtube_links and self.youtube_enabled:
-            self._register_parse_task("json-youtube", event)
-            event.should_call_llm(True)
-            try:
-                await self._process_youtube(event, youtube_links[0], is_from_card=True)
-                return
-            except asyncio.CancelledError:
-                logger.info("♻️ JSON卡片解析任务已中断")
+            if handled:
                 return
 
         logger.warning("⚠️ 从卡片中找到链接但无法解析: %s", unique_links)
