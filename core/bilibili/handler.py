@@ -31,6 +31,7 @@ from ..common import (
     get_bilibili_thumb_path,
     get_bilibili_video_path,
 )
+from ..common.reply_templates import duration_limit_reply, size_limit_reply
 from ..common.card_renderer import (
     CardData,
     UniversalCardRenderer,
@@ -1130,7 +1131,11 @@ class BilibiliMixin:
                         max_duration_seconds,
                         title[:30],
                     )
-                    event.set_result(event.plain_result("视频太长了你自己看去"))
+                    reply = duration_limit_reply(
+                        self, duration_to_check, max_duration_seconds
+                    )
+                    if reply:
+                        event.set_result(event.plain_result(reply))
                     return
 
             # region 下载阶段
@@ -1200,12 +1205,14 @@ class BilibiliMixin:
                     except asyncio.CancelledError:
                         raise
                     except SizeLimitExceeded:
-                        nodes.nodes.append(
-                            Node(
-                                uin=sender_uin,
-                                content=[Plain("我没流量了, 看不了那么大的视频")],
+                        reply = size_limit_reply(self)
+                        if reply:
+                            nodes.nodes.append(
+                                Node(
+                                    uin=sender_uin,
+                                    content=[Plain(reply)],
+                                )
                             )
-                        )
                     except Exception as exc:
                         logger.error("❌ 视频下载失败%s: %s", source_tag, str(exc))
                         if self.error_notify_mode == "报错":
@@ -1279,7 +1286,9 @@ class BilibiliMixin:
             except asyncio.CancelledError:
                 raise
             except SizeLimitExceeded:
-                event.set_result(event.plain_result("我没流量了, 看不了那么大的视频"))
+                reply = size_limit_reply(self)
+                if reply:
+                    event.set_result(event.plain_result(reply))
                 return
             except Exception as exc:
                 logger.error("❌ 视频下载失败%s: %s", source_tag, str(exc))

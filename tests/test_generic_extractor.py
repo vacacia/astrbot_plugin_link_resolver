@@ -332,7 +332,26 @@ class TestGenericHandler(unittest.IsolatedAsyncioTestCase):
             handler.generic_max_duration_seconds = 5
             await handler._process_generic(event, result.source_url)
             handler.generic_extractor.download.assert_not_awaited()
-            event.set_result.assert_called_once()
+            event.set_result.assert_called_once_with("视频太长了你自己看去")
+
+    async def test_too_long_uses_configured_template(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handler, event, result, _ = self.make_handler(directory)
+            handler.generic_max_duration_seconds = 5
+            handler.duration_limit_reply = (
+                "超过 {duration_seconds} 秒，上限 {limit_seconds} 秒"
+            )
+            await handler._process_generic(event, result.source_url)
+            event.set_result.assert_called_once_with("超过 12 秒，上限 5 秒")
+
+    async def test_too_long_blank_template_stays_quiet(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handler, event, result, _ = self.make_handler(directory)
+            handler.generic_max_duration_seconds = 5
+            handler.duration_limit_reply = "  "
+            await handler._process_generic(event, result.source_url)
+            handler.generic_extractor.download.assert_not_awaited()
+            event.set_result.assert_not_called()
 
     async def test_disabled_does_nothing(self):
         with tempfile.TemporaryDirectory() as directory:

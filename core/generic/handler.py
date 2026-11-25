@@ -18,6 +18,7 @@ from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Node, Nodes, Plain, Video
 
 from ..common import SizeLimitExceeded, get_generic_video_path
+from ..common.reply_templates import duration_limit_reply
 from ..youtube import YoutubeDownloadError, YoutubeParseError, YoutubeResult
 
 # 这类错误重试也不会成功(链接类型不受支持/无视频), 直接放弃以免白等
@@ -100,7 +101,11 @@ class GenericMixin:
                         preview.duration,
                         self.generic_max_duration_seconds,
                     )
-                    event.set_result(event.plain_result("视频太长了你自己看去"))
+                    reply = duration_limit_reply(
+                        self, preview.duration, self.generic_max_duration_seconds
+                    )
+                    if reply:
+                        event.set_result(event.plain_result(reply))
                     return
                 step = time.perf_counter()
                 result, video_path = await self.generic_extractor.download(

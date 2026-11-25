@@ -47,7 +47,9 @@ ffmpeg -version
 |--------|------|--------|
 | `enable_platforms` | 勾选要启用解析的平台 | B站, 抖音, 小红书, 微博, X |
 | `general_settings.retry_count` | 解析失败重试次数（所有平台共用） | 3 |
-| `general_settings.max_video_size_mb` | 最大视频大小限制 (MB)，超过则跳过下载或自动降画质 | 200 |
+| `general_settings.max_video_size_mb` | 最大视频大小限制 (MB)，超过则跳过下载或自动降画质。B站无法继续降画质时使用体积超限回复 | 200 |
+| `reply_templates.duration_exceeded` | B站、YouTube、通用解析时长超限时的回复。可用 `{video_minutes}` `{limit_minutes}` `{duration_seconds}` `{limit_seconds}`。留空则只记日志 | `视频太长了你自己看去` |
+| `reply_templates.size_exceeded` | B站体积超限时的回复，单视频和多P共用。可用 `{limit_mb}`。留空则只记日志 | `我没流量了, 看不了那么大的视频` |
 | `general_settings.reaction_emoji_enabled` | 识别链接后是否发表情回应 | ✅ 开启 |
 | `general_settings.reaction_emoji_list` | 回应表情 ID 列表(0~5个), 空=不回应 | `[127827]` |
 | `general_settings.reaction_emoji_strategy` | `随机` 抽1个 / `顺序循环` 全部依次回应(每个 0.5s) | `随机` |
@@ -92,7 +94,7 @@ ffmpeg -version
 | `bili_settings.summary_mode` | 合并发送时使用 `文字摘要` 或 `渲染卡片` | `文字摘要` |
 | `bili_settings.enable_multi_page` | 启用多P视频下载 | ✅ 开启 |
 | `bili_settings.multi_page_max` | 多P最多下载数量 | 3 |
-| `bili_settings.max_duration_seconds` | 最大视频时长(秒)，超过即忽略 | 300 |
+| `bili_settings.max_duration_seconds` | 最大视频时长(秒)，超过则发送时长超限回复；0 为不限 | 300 |
 | `bili_settings.cookies` | B站 Cookies 文本 | 空 |
 
 ### 抖音设置
@@ -140,7 +142,7 @@ ffmpeg -version
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `generic_settings.max_height` | 分辨率上限: 原画, 1080P, 720P 或 480P | `720P` |
-| `generic_settings.max_duration_seconds` | 最大视频时长(秒), 超过即忽略; 0 为不限 | `300` |
+| `generic_settings.max_duration_seconds` | 最大视频时长(秒), 超过则发送时长超限回复; 0 为不限 | `300` |
 | `generic_settings.merge_send` | 合并发送标题, 作者和视频 | 关 |
 | `generic_settings.blocked_domains` | 排除的域名(黑名单), 含子域名 | 空 |
 | `generic_settings.cookies` | 可选. 完整 Netscape `cookies.txt`, 用于 Reddit/西瓜视频/Vimeo 等需登录站点 | 空 |
@@ -153,7 +155,7 @@ ffmpeg -version
 |--------|------|--------|
 | `youtube_settings.cookies` | 可选.完整 Netscape `cookies.txt` 文本, 用于需登录内容 | 空 |
 | `youtube_settings.max_height` | 最高下载分辨率: 原画, 8K, 4K, 1080P, 720P, 480P, 360P, 240P 或 144P | `1080P` |
-| `youtube_settings.max_duration_seconds` | 最大视频时长(秒), 超过即忽略 | `300` |
+| `youtube_settings.max_duration_seconds` | 最大视频时长(秒), 超过则发送时长超限回复; 0 为不限 | `300` |
 | `youtube_settings.video_codec` | 优先视频编码: `H.264`(兼容桌面 QQ, 推荐)或 `AV1`(体积通常更小) | `H.264` |
 | `youtube_settings.player_client` | yt-dlp 请求客户端: `default` 或 `web_embedded` | `default` |
 

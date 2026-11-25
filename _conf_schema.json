@@ -79,7 +79,7 @@
             "max_duration_seconds": {
                 "description": "B站最大视频时长(秒)",
                 "type": "int",
-                "hint": "视频时长超过该值时直接提示并忽略后续解析。设为 0 表示不限制。",
+                "hint": "视频时长超过该值时发送 reply_templates.duration_exceeded 并停止解析。设为 0 表示不限制。",
                 "default": 300,
                 "min": 0,
                 "max": 86400
@@ -198,7 +198,7 @@
             "max_duration_seconds": {
                 "description": "最大视频时长(秒)",
                 "type": "int",
-                "hint": "超过此时长不下载; 0 为不限.",
+                "hint": "超过此时长不下载，并发送 reply_templates.duration_exceeded; 0 为不限.",
                 "default": 300,
                 "min": 0,
                 "max": 86400
@@ -256,7 +256,7 @@
             "max_duration_seconds": {
                 "description": "最大视频时长(秒)",
                 "type": "int",
-                "hint": "超过此时长不下载; 0 为不限.",
+                "hint": "超过此时长不下载，并发送 reply_templates.duration_exceeded; 0 为不限.",
                 "default": 300,
                 "min": 0,
                 "max": 86400
@@ -400,7 +400,7 @@
             "max_video_size_mb": {
                 "description": "最大视频大小 (MB)",
                 "type": "int",
-                "hint": "超过此大小的视频将不会下载。设置为 0 表示无限制。",
+                "hint": "超过此大小的视频将不会下载。B站在无法继续降画质时发送 reply_templates.size_exceeded。设置为 0 表示无限制。",
                 "default": 200,
                 "min": 0,
                 "max": 1000
@@ -421,6 +421,25 @@
                     "脱敏",
                     "报错"
                 ]
+            }
+        }
+    },
+    "reply_templates": {
+        "description": "超限回复",
+        "type": "object",
+        "hint": "时长或体积超过上限时发给会话的文本。默认句与旧版本写在源码里的句子相同。留空则只记日志、不发送。",
+        "items": {
+            "duration_exceeded": {
+                "description": "时长超限回复",
+                "type": "string",
+                "hint": "B站、YouTube、通用解析共用。可用 {video_minutes}、{limit_minutes}、{duration_seconds}、{limit_seconds}。视频分钟向上取整，上限分钟向下取整。留空则不发送。",
+                "default": "视频太长了你自己看去"
+            },
+            "size_exceeded": {
+                "description": "体积超限回复",
+                "type": "string",
+                "hint": "B站视频在降画质后仍超过 max_video_size_mb 时使用，单视频和多P各一处。可用 {limit_mb}。留空则不发送。",
+                "default": "我没流量了, 看不了那么大的视频"
             }
         }
     },
