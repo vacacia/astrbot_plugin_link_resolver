@@ -31,6 +31,10 @@ from .core.common.font_manager import (
     set_managed_fonts_enabled,
     set_user_font_paths,
 )
+from .core.common.reply_templates import (
+    DEFAULT_DURATION_LIMIT_REPLY,
+    DEFAULT_SIZE_LIMIT_REPLY,
+)
 from .core.douyin import DOUYIN_MESSAGE_PATTERN, DouyinExtractor
 from .core.douyin.handler import DouyinMixin
 from .core.generic import GENERIC_URL_PATTERN, GenericExtractor
@@ -429,6 +433,18 @@ class LinkResolverPlugin(
             self._get_config_value("general_settings.error_notify_mode", "静默")
         ).strip()
         self.error_notify_mode = _mode if _mode in ("静默", "脱敏", "报错") else "静默"
+        self.duration_limit_reply = str(
+            self._get_config_value(
+                "reply_templates.duration_exceeded",
+                DEFAULT_DURATION_LIMIT_REPLY,
+            )
+        )
+        self.size_limit_reply = str(
+            self._get_config_value(
+                "reply_templates.size_exceeded",
+                DEFAULT_SIZE_LIMIT_REPLY,
+            )
+        )
 
         # 群过滤配置(黑/白名单)
         _gf_mode = str(self._get_config_value("group_filter.mode", "黑名单")).strip()

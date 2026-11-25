@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 新增
+
+- 新增 `reply_templates.duration_exceeded` 与 `reply_templates.size_exceeded`。B站、YouTube、通用解析的时长超限回复，以及 B站体积超限回复，改为读取这两项。默认句与原先写在源码里的句子相同。模板支持 `{video_minutes}`、`{limit_minutes}`、`{duration_seconds}`、`{limit_seconds}`、`{limit_mb}`。留空则只记日志、不发送
+
 ## v1.0.15
 
 ### 新增

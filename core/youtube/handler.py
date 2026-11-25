@@ -12,6 +12,7 @@ from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Node, Nodes, Plain, Video
 
 from ..common import SizeLimitExceeded, get_youtube_video_path
+from ..common.reply_templates import duration_limit_reply
 from . import (
     YoutubeDownloadError,
     YoutubeParseError,
@@ -91,7 +92,11 @@ class YoutubeMixin:
                         preview.duration,
                         self.youtube_max_duration_seconds,
                     )
-                    event.set_result(event.plain_result("视频太长了你自己看去"))
+                    reply = duration_limit_reply(
+                        self, preview.duration, self.youtube_max_duration_seconds
+                    )
+                    if reply:
+                        event.set_result(event.plain_result(reply))
                     return
                 result, video_path = await self._download_youtube_video(
                     target_link, request_id, active_client
